@@ -140,8 +140,8 @@ void handleSerial() {
 // Turns on solar panels, allows battery charging and solar powering of peripherals.
 // NOTE if this is disabled, everything runs on battery power, even in daytime.
 void enableSolar() {
-  Serial.print(getTimeWithZeros());
-  Serial.println(" - Solar panel ENABLED via enableSolar();");
+  Serial.print(F("[SOLAR] on  "));
+  Serial.println(getTimeWithZeros());
   pinMode(PIN_SOLAR_POWER, INPUT);                 // prepares Solar Panel control pin
   digitalWrite(PIN_SOLAR_POWER, SOLAR_CONNECTED);     // turns Solar Panel on
 
@@ -149,8 +149,8 @@ void enableSolar() {
 
 // Turns off solar panels. Use this carefully, it makes everything battery powered.
 void disableSolar() {
-  Serial.print(getTimeWithZeros());
-  Serial.println(" - Solar panel DISABLED via disableSolar();");
+  Serial.print(F("[SOLAR] off "));
+  Serial.println(getTimeWithZeros());
   pinMode(PIN_SOLAR_POWER, OUTPUT);                  // prepares Solar Panel control pin
   digitalWrite(PIN_SOLAR_POWER, SOLAR_DISCONNECTED);    // turns Solar Panel off
 
@@ -160,7 +160,7 @@ void disableSolar() {
 // Camera control helper functions
 void enableCamBrain() {
   if (camStatus.BrainDesireOn == false) {
-    Serial.println(F("Enabling CamBrain"));
+    wxLogTag(F("CAM"), F("brain on"));
     pinMode(PIN_CamBrain_POWER, INPUT_PULLUP);              // precharge capacitor
     delay (2000);
     pinMode(PIN_CamBrain_POWER, OUTPUT);   
@@ -170,7 +170,7 @@ void enableCamBrain() {
   }
 }
 void disableCamBrain() {
-  Serial.println(F("Disabling CamBrain"));
+  wxLogTag(F("CAM"), F("brain off"));
   digitalWrite(PIN_CamBrain_POWER, CamBrain_OFF);
   camStatus.BrainDesireOn = false;
   EEPROM.put(eeCamStatus, camStatus);
@@ -178,7 +178,7 @@ void disableCamBrain() {
 
 void enableCamNorth() {
   if (camStatus.NorthDesireOn == false) {
-    Serial.println(F("Enabling CamNorth"));
+    wxLogTag(F("CAM"), F("north on"));
     pinMode(PIN_CamNorth_POWER, INPUT_PULLUP);              // precharge capacitor
     delay (2000);                                           // let it charge up
     pinMode(PIN_CamNorth_POWER, OUTPUT);
@@ -188,7 +188,7 @@ void enableCamNorth() {
   }
 }
 void disableCamNorth() {
-  Serial.println(F("Disabling CamNorth"));
+  wxLogTag(F("CAM"), F("north off"));
   camStatus.NorthDesireOn = false;
   digitalWrite(PIN_CamNorth_POWER, CamNorth_OFF);
   EEPROM.put(eeCamStatus, camStatus);
@@ -196,7 +196,7 @@ void disableCamNorth() {
 
 void enableCamSouth() {
   if (camStatus.SouthDesireOn == false) {
-    Serial.println(F("Enabling CamSouth"));
+    wxLogTag(F("CAM"), F("south on"));
     pinMode(PIN_CamSouth_POWER, INPUT_PULLUP);              // precharge capacitor
     delay (2000);                                      // let it charge up
     pinMode(PIN_CamSouth_POWER, OUTPUT);
@@ -206,7 +206,7 @@ void enableCamSouth() {
   }
 }
 void disableCamSouth() {
-  Serial.println(F("disable CamSouth"));
+  wxLogTag(F("CAM"), F("south off"));
   digitalWrite(PIN_CamSouth_POWER, CamSouth_OFF);
   camStatus.SouthDesireOn = false;
   EEPROM.put(eeCamStatus, camStatus);
@@ -326,7 +326,8 @@ void goToSleep(){
   // power down EEPROM? and RTC?
   
   // allpinslow turns all Mega pins to output and to low. Except inverted default "on" (Eth and U), and MWX sensor pins (input)
-  Serial.println(F("GOING TO SLEEP!"));
+  wxLogSection(F("SLEEP"));
+  wxLogTag(F("SLEEP"), F("powering down"));
   Serial.flush(); // wait for message to print 
   Serial.end();   // turn off TX0 so 16U2 ESD won't get pulled high
   

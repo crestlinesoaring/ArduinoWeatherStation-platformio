@@ -23,7 +23,7 @@ bool checkEthIncomingData() {
     wdt_reset();
     incomingClient = server.available();
     if (incomingClient) {
-      Serial.println(F("Ethernet client connected!"));
+      wxLogTag(F("NET"), F("telnet client connected"));
       incomingClient.println(F("Hi there, it's me, the Marshall weather station! Send '?' for help."));
       // Probably just waiting here is enough to cause a WatchDog reset, which is all we really need.
       while (incomingClient.connected()) {
@@ -381,10 +381,9 @@ bool checkEthIncomingData() {
       incomingClient.println(": Ending Session. Goodbye!");
       delay(10);
       incomingClient.stop();
-      Serial.println();
-      Serial.print(F("Incoming client disconnected after "));
+      Serial.print(F("[NET] telnet disconnected ("));
       Serial.print(millis() - usTemp);
-      Serial.println("ms.");
+      Serial.println(F(" ms)"));
       telnetSeconds = (millis() - usTemp) / 1000;
       return true; // return true if a telnet communication took place
     }
@@ -436,19 +435,19 @@ void ethernetPowerOff(){
 
 
 // Turns on power for components needed for network connectivity
-void enableEthernet() {
+void enableEthernet(bool quiet) {
   // DON'T KEEP ENABLING ONCE IT'S ALREADY ENABLED! It's wasteful. Also it makes an endless loop if the 30 seconds crosses the "second zero" boundary.
   if (ethEnabled) return;
   wdt_reset();
-  Serial.println("Executing enableEthernet()."); 
+  if (!quiet) wxLogTag(F("NET"), F("enabling ethernet..."));
   ethernetPowerOn();                              // Activate power supply and SPI bus
   Ethernet.begin(mac, ip, dnsServer, gateway, subnet); // Eth must be initialized after each power up
-  Serial.println("Ethernet.begin executed. Wating for 5 sec"); 
   delayWithWdt(EthStartupDelay);                  // must wait at least @ 5000ms; feed WD during wait
   wdt_reset();
-  Serial.println(" Done.");
-  Serial.print("Link hopefully connected. Local IP is ");
-  Serial.println(Ethernet.localIP());
+  if (!quiet) {
+    Serial.print(F("[NET] ethernet up  IP "));
+    Serial.println(Ethernet.localIP());
+  }
   W5100.setRetransmissionTime(0x07D0);            // reduce wait
   W5100.setRetransmissionCount(4);
   server.begin();                                 //jjjjj? why is that here?
@@ -479,13 +478,15 @@ void resetEthernet(){ // Resets the ethernet shield. Delays incorporated! Takes 
 }
 
 // Turns off power for network components to save power
-void disableEthernet() {
-  Serial.print(getTimeWithZeros());
-  Serial.println(F(": disableEthernet() called."));
+void disableEthernet(bool quiet) {
+  if (!quiet) {
+    Serial.print(F("[NET] ethernet off  "));
+    Serial.println(getTimeWithZeros());
+  }
   
   if (hour() == 11 and minute() > 48) {
     // Leave it all on for ~10 minutes, once a day. Just-in-case.
-    Serial.println(F("Leaving Ethernet on from 11:50 to noon"));
+    if (!quiet) wxLogTag(F("NET"), F("ethernet held on (11:50–12:00)"));
     return;
   }
   
@@ -497,25 +498,21 @@ void disableEthernet() {
   ethEnabled = false;
 }
 
-void enableWifi() {
+void enableWifi(bool quiet) {
 
 #ifdef BENCH_MODE
-  Serial.println(F("enableWifi() skipped in BENCH_MODE (Ethernet only)."));
+  if (!quiet) wxLogTag(F("NET"), F("wifi skipped (BENCH_MODE)"));
   return;
 #endif
   
-  Serial.print("enableWifi() called.");
+  if (wifiEnabled) return;
+  if (wifiStartTime) return;
   
-  if (wifiEnabled){ 
-    Serial.println("enable Wifi() aborted: Wifi is already enabled.");
-    return;
+  if (!quiet) {
+    Serial.print(F("[NET] enabling wifi ("));
+    Serial.print(wifiStartupDelay);
+    Serial.println(F("s delay)"));
   }
-  if (wifiStartTime){
-    Serial.println("enable Wifi() aborted: Wifi is already starting up.");
-    return;
-  }
-  
-  Serial.print(F("Wasn't already enabled. Delay seconds: ")); Serial.println(wifiStartupDelay);
 
   pinMode(PIN_UBIQUITI_POWER, OUTPUT);                 // prepares Ubiquiti power control pin
   digitalWrite(PIN_UBIQUITI_POWER, UBIQUITI_ON);  // turns Ubiquiti on
@@ -527,10 +524,12 @@ void waitForWifi() {
   while(true){
     wdt_reset();  
     if (not (int((millis() - wifiStartTime) / 1000) % 10)) { 
-      Serial.print("Waiting for wifi to start up, it's been "); Serial.print((millis() - wifiStartTime) / 1000,10); Serial.println(" seconds.");
+      Serial.print(F("[NET] wifi starting... "));
+      Serial.print((millis() - wifiStartTime) / 1000,10);
+      Serial.println(F("s"));
     }
     if ((millis() - wifiStartTime) / 1000 > wifiStartupDelay) {
-      Serial.println(" Done waiting! Wifi Enabled.");
+      wxLogTag(F("NET"), F("wifi ready"));
       wifiStartTime = 0;
       wifiEnabled = true;
       break;
@@ -539,37 +538,32 @@ void waitForWifi() {
   }
 }
 
-void disableWifi() {
-
-  Serial.print(getTimeWithZeros());
-  Serial.println(F(": disableWifi() called."));
+void disableWifi(bool quiet) {
 
   if (keepUbiquitiOn) {
-    // do nothing, keep it on!
-    Serial.println(F(" Wifi left on due to keepUbiquitiOn flag."));
+    if (!quiet) wxLogTag(F("NET"), F("wifi held on (keepUbiquitiOn)"));
     return;
   }
 
   if (wifiStartTime) {
-    // do nothing, something has requested the wifi be turned on so we'll leave it on.
-    // up to that thing to turn it off after it's done.
-    Serial.println(F(" Wifi left on due to wifiStartTime > 0, meaning something is starting up wifi."));
     return;
   }
 
   if (hour() == 11 and minute() > 48) {
-    // Leave it all on for ~10 minutes, once a day. Just-in-case.
-    Serial.println(F("Leaving Ubiquiti on from 11:50 to noon"));
+    if (!quiet) wxLogTag(F("NET"), F("wifi held on (11:50–12:00)"));
     return;
   }
 
 #ifdef TENMINUTEDAY
-  // For debugging lets leave the "ubiquiti" on
-  Serial.println(F("Leaving Ubiquiti on for #TENMINUTEDAY"));
+  if (!quiet) wxLogTag(F("NET"), F("wifi held on (TENMINUTEDAY)"));
   return;
 #endif
 
 
+  if (!quiet) {
+    Serial.print(F("[NET] wifi off  "));
+    Serial.println(getTimeWithZeros());
+  }
   pinMode(PIN_UBIQUITI_POWER, OUTPUT);                  // prepares Ubiquiti power control pin
   digitalWrite(PIN_UBIQUITI_POWER, UBIQUITI_OFF);  // turns Ubiquiti off
   wifiEnabled = false;
@@ -634,10 +628,10 @@ void getRiseSet()
     sunset = sunset + 60;
   }
   sunriseDay = day();
-  Serial.println();
-  Serial.print(F("Sunrise today is at  ")); Serial.print(sunrise / 60); Serial.print(":"); Serial.println(sunrise % 60);
-  Serial.print(F("Sunset  today is at " )); Serial.print(sunset  / 60); Serial.print(":"); Serial.println(sunset  % 60);
-  Serial.println();
+  Serial.print(F("  sunrise "));
+  Serial.print(sunrise / 60); Serial.print(F(":")); Serial.println(sunrise % 60);
+  Serial.print(F("  sunset  "));
+  Serial.print(sunset  / 60); Serial.print(F(":")); Serial.println(sunset  % 60);
 }
 
 boolean CheckDST(){
@@ -683,14 +677,14 @@ time_t getNtpTime()
 {
   Udp.begin(localPort);
   while (Udp.parsePacket() > 0) ; // discard any previously received packets
-  Serial.println("Transmit NTP Request");
+  wxLogTag(F("NTP"), F("request"));
   sendNtpPacket(timeServer);
   uint32_t beginWait = millis();
   while (millis() - beginWait < 1500) {
     wdt_reset();
     int size = Udp.parsePacket();
     if (size >= NTP_PACKET_SIZE) {
-      Serial.println("Receive NTP Response");
+      wxLogTag(F("NTP"), F("response"));
       Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
       unsigned long secsSince1900;
       // convert four bytes starting at location 40 to a long integer

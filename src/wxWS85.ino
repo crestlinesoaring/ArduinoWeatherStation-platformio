@@ -46,10 +46,16 @@ void ws85ResetFrame() {
   ws85HaveBatV = false;
 }
 
+void ws85MarkFrameReady() {
+  if (!ws85HaveDir || !ws85HaveSpeed) return;
+  ws85FrameReady = true;
+}
+
+#ifdef WS85_SERIAL_LOG
 void ws85PrintReading() {
   if (!ws85HaveDir || !ws85HaveSpeed) return;
 
-  Serial.print(F("WS85 rx: dir="));
+  Serial.print(F("[WS85] dir="));
   Serial.print(ws85Dir);
   Serial.print(F(" deg  speed="));
   Serial.print(ws85SpeedMps, 1);
@@ -87,8 +93,13 @@ void ws85PrintReading() {
   }
   Serial.println();
 
-  ws85FrameReady = true;
+  ws85MarkFrameReady();
 }
+#else
+void ws85PrintReading() {
+  ws85MarkFrameReady();
+}
+#endif
 
 void ws85ParseLine(const String &line) {
   if (line.startsWith("==========")) {

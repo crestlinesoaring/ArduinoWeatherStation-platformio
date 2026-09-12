@@ -43,10 +43,12 @@
 // Other header files, included in the sketch-folder. Work out of the box, no action required.
 #include "pins.h"      // Header file for hardware dependent variables (must precede Marshall.h for BENCH_MODE)
 #include "Marshall.h"  // Site-specific parameters that cannot currently be published
+#include "wxSerial.h"
 
 
 // OTHER DEBUGGING SETTINGS:
 // #define TELNET_AT_STARTUP          // DEBUG: Uncomment to force Arduino into Telnet client loop at beginning of loop() function. Attention: standard sensor reading loop is disabled then! Same can be achieved with PIN_TELNET_AT_STARTUP (see pin.h)
+// WS85_SERIAL_LOG is set via platformio.ini build_flags (see wxSerial.h).
 
 const String wxVersion = VERSION_ID;
 const bool   enableEthDump2Serial = false;  // Set to false to suppress spitting Ethernet output to serial. Sometimes unprintable characters mess up the terminal.
@@ -370,6 +372,9 @@ wxCache_struct wxCache[WX_CACHE_MAX];
 //4,428 used or 3,764 free with 4 hours storage
 
 String wxStringCache[10];
+byte wxCacheSlotMinute[10];   // clock minute stored in each cache slot; 255 = empty
+byte wxCacheSlotHour[10];     // clock hour for each cache slot; 255 = empty
+const byte wxCacheSlotInvalid = 255;
 String tempWeatherString;     // Once a minute we will compile a "WeatherString", this is the string that gets uploaded.
 String returnStatus;          // A global string to use for updating return statuses. This is poor form, but easier than learning pointers.
 
@@ -534,16 +539,15 @@ void yield()
 void setup()
 {
   Serial.begin(115200);
-  Serial.println();
-  Serial.println();
+  wxLogSection(F("BOOT"));
   Serial.print(startupMessage); // Set at the top of sketch to make it easier to find & update
   Serial.print(F(" git="));
   Serial.println(VERSION_COMMIT);
-  Serial.print(" starting at ms ");
-  Serial.println(millis());
+  Serial.print(F("  started at "));
+  Serial.print(millis());
+  Serial.println(F(" ms"));
 
-  // Print the compile-time station configuration (see Marshall.h / platformio.ini build_flags)
-  Serial.println(F("Station defines:"));
+  wxLogSection(F("CONFIG"));
   Serial.print(F("  owner=")); Serial.println(wxOwner);
   Serial.print(F("  hardwareVersion=")); Serial.println(hardwareVersion);
   Serial.print(F("  batteryType='"));
@@ -605,21 +609,22 @@ void setup()
   pinMode(PIN_CamSouth_POWER, OUTPUT); //jj 22b set camera power control pins to output
   pinMode(PIN_CamBrain_POWER, OUTPUT); //jj 22b set camera power control pins to output
   
-  disableEthernet();
+  disableEthernet(true); // before RTC; skip log (time not set yet)
 
+  wxLogSection(F("SENSORS"));
   //Setup INA219 voltage and current sensor(s)
-  Serial.print(F("Starting INA219a Solar Volt & current sensor A: ")); usTemp = micros(); //jjjsolar
+  Serial.print(F("  INA219a solar: ")); usTemp = micros(); //jjjsolar
   ina219a_solar.begin();
   ina219a_solar.setCalibration_32V_5A(); //jjjk INA couldn't get the public method going (32V_5A)
   Serial.print(micros() - usTemp); Serial.println("us.");
 
-  Serial.print(F("Starting INA219b Battery Volt & current sensor B: ")); usTemp = micros();
+  Serial.print(F("  INA219b battery: ")); usTemp = micros();
   ina219b_battery.begin();
   ina219b_battery.setCalibration_16V_5A();
   Serial.print(micros() - usTemp); Serial.println("us.");
 
   //Setup BME280 temperatue and humidity sensor A
-  Serial.print(F("Starting BME280a external Temperature and Humidity sensor A, status: 0x")); usTemp = micros(); //jjjexternal 
+  Serial.print(F("  BME280a external: status 0x")); usTemp = micros(); //jjjexternal 
   bme280a.settings.commInterface = I2C_MODE;
   bme280a.settings.I2CAddress = bme280a_HWaddr;
   bme280a.settings.runMode = 3;
@@ -630,7 +635,7 @@ void setup()
   Serial.print(", took "); Serial.print(micros() - usTemp); Serial.println("us.");
 
   //Setup BME280 temperatue and humidity sensor B
-  Serial.print(F("Starting BME280b internal Temperature & Humidity sensor B, status: 0x")); usTemp = micros();
+  Serial.print(F("  BME280b internal: status 0x")); usTemp = micros();
   bme280b.settings.commInterface = I2C_MODE;
   bme280b.settings.I2CAddress = bme280b_HWaddr;
   bme280b.settings.runMode = 3;
@@ -655,14 +660,18 @@ void setup()
   // turn on interrupts
   interrupts();
 
-  Serial.println();
-  Serial.print(F("Startup done at "));
+  Serial.print(F("[BOOT] ready at "));
   Serial.print(millis());
-  Serial.println("ms!");
+  Serial.println(F(" ms"));
 
   loopCounter = 0;
   loopDelta = 0;
 
+  for (byte i = 0; i < 10; i++) {
+    wxStringCache[i] = "";
+    wxCacheSlotMinute[i] = wxCacheSlotInvalid;
+    wxCacheSlotHour[i] = wxCacheSlotInvalid;
+  }
 
   /**********************************************
     * EEPROM READ, see if we did a Watchdog crash!
@@ -704,8 +713,9 @@ void setup()
   
   #ifndef SIMULATE_RTC // Only if time shall not be simulated.
 
+  wxLogSection(F("TIME"));
   timeZone = - (int)EEPROM.read(eeTimeZone);
-  Serial.print("Read time zone from EEPROM: "); Serial.println(timeZone);
+  Serial.print(F("  timezone EEPROM: ")); Serial.println(timeZone);
   if ((timeZone < -8) or (timeZone > -7)){ 
     timeZone = timeZoneDefault; //if timeZone from EEPROM is not valid, it was not initialized yet.
     Serial.print("EEPROM time zone not valid. Using default time zone = "); Serial.println(timeZone);
@@ -713,16 +723,15 @@ void setup()
   }
       
   rtc_time_temp = RTC.get();
-  Serial.print("Time read from RTC: "); Serial.println(time_t_to_datetime_string(rtc_time_temp));
+  Serial.print(F("  RTC: ")); Serial.println(time_t_to_datetime_string(rtc_time_temp));
 
   if ((rtc_time_temp > 0) and (isTimeValid(rtc_time_temp))) {
     // If we have a working RTC, let's just use it. Every few minutes we'll check for NTP too.
     rtc_available = true;
-	Serial.println(F("RTC selected as time source. Will be synchronized via NTP during during first data upload."));
+    wxLogTag(F("TIME"), F("using RTC; NTP sync on first upload"));
     setSyncProvider([](){return RTC.get();});
     setSyncInterval(300);           // Update system time often because it actually slews pretty fast; 4 second an hour is typical.
     recentTime = now();
-    Serial.println();
   } else {
     // RTC didn't work. Set NTP as the sync provider.
     rtc_available = false;
@@ -780,6 +789,7 @@ void setup()
 #endif
 
   // Now we can reliably calculate Sunrise and Sunset:
+  Serial.println(F("  sun times:"));
   getRiseSet();
   
   // Trigger watchdog
@@ -793,8 +803,8 @@ void setup()
   minutesToday = hour() * 60 + minute();
   if ((minutesToday < sunrise - minutesBeforeSunrise)
   or  (minutesToday > sunset  + minutesAfterSunset)){
-	Serial.print(F("It's night! We will switch to day at "));
-    Serial.print((sunrise - minutesBeforeSunrise) / 60); Serial.print(":"); Serial.println((sunrise - minutesBeforeSunrise) % 60);
+    Serial.print(F("[BOOT] night — sleeping until "));
+    Serial.print((sunrise - minutesBeforeSunrise) / 60); Serial.print(F(":")); Serial.println((sunrise - minutesBeforeSunrise) % 60);
     goToSleep();
   }
 #endif
@@ -942,10 +952,12 @@ void loop()
 #ifndef BENCH_MODE
     if (wifiStartTime) { 
       if (not (int((millis() - wifiStartTime) / 1000) % 10)) { 
-        Serial.print("Waiting for wifi to start up, it's been "); Serial.print((millis() - wifiStartTime) / 1000,10); Serial.println(" seconds.");
+        Serial.print(F("[NET] wifi starting... "));
+        Serial.print((millis() - wifiStartTime) / 1000,10);
+        Serial.println(F("s"));
       }
       if ((millis() - wifiStartTime) / 1000 > wifiStartupDelay) {
-        Serial.println(" Done waiting! Wifi Enabled.");
+        wxLogTag(F("NET"), F("wifi ready"));
         wifiStartTime = 0;
         wifiEnabled = true;
       } 
@@ -994,7 +1006,11 @@ void loop()
        and not (camStatus.badWeather)
        and (battDrainmA > -500)) {
         // If it's early enough in the day, and charging voltage is high enough, enable cameras.
-        Serial.println("Daytime and power conditions allow for Camera and continuous WiFi operation.");
+        static bool camPowerMsgShown = false;
+        if (!camPowerMsgShown) {
+          wxLogTag(F("CAM"), F("daytime power OK — cameras + continuous WiFi"));
+          camPowerMsgShown = true;
+        }
         keepUbiquitiOn = true;
         EEPROM.update(eeKeepUbiOn, true);
         enableWifi();
@@ -1002,7 +1018,7 @@ void loop()
           // Cam North is a little wonky, crashes in high humidity. *shrug*. (April 2019)
           enableCamNorth();
         } else {
-          Serial.println("Camera North not enabled due to high humidity.");
+          wxLogTag(F("CAM"), F("north skipped (high humidity)"));
         }
         enableCamSouth();
       }
@@ -1014,13 +1030,12 @@ void loop()
         battDrainMinutes += 1;
         // If the battery's been draining too long (minutes) or too much (milliamp-minutes), cut the cameras.
         if (((battDrainMinutes >= 5) or (battDrainmA < -8000) or ((ina219b_battery_volts < 12.5) and (battDrainMinutes > 1)) ) ) {
-          Serial.println("Disabling cameras and continuous WiFi due to excessive battery drain.");
+          wxLogTag(F("CAM"), F("off — excessive battery drain"));
           disableCamSouth();
           disableCamNorth();
           disableCamBrain();
           keepUbiquitiOn = false;
           EEPROM.update(eeKeepUbiOn, false);
-          Serial.println("Continuous operation of Wifi will stop after next data upload.");
         }
       } else if ((ina219b_battery_ma > 50) or (ina219a_solar_volts > 16)) {
         // track positive charging moments
@@ -1050,29 +1065,39 @@ void loop()
       *  S H U T   D O W N
       * * * * * * * * * * * * * * * * * */
     
-      Serial.println("Checking shut down criteria:");
-      
       // Is it night time?
       minutesToday = hour() * 60 + minute();
-      Serial.print(F("The time of day is "));Serial.print(hour()); Serial.print(":"); Serial.print(minute());
       if ((minutesToday < sunrise - minutesBeforeSunrise) // Add 40 minutes in the morning because station restarts every hour only.
       or  (minutesToday > sunset  + minutesAfterSunset)){
         shut_down_flag = true;
-        Serial.print(F(", which is Night time. We will switch to daytime at "));
-        Serial.print((sunrise - minutesBeforeSunrise) / 60); Serial.print(":"); Serial.println((sunrise - minutesBeforeSunrise) % 60);
-      } else {
-        Serial.print(F(", which is Day time. We will switch to night at "));
-        Serial.print((sunset + minutesAfterSunset) / 60); Serial.print(":"); Serial.println((sunset + minutesAfterSunset) % 60);
       }
-      
+
       // Is battery voltage critically low?
-      Serial.print("Battery voltage is "); Serial.print(ina219b_battery_volts);
       if (ina219b_battery_volts < battery_critical_voltage) {
-        Serial.println(", which is critically low.");
         shut_down_flag = true;
-      } else {
-        Serial.println(", which is okay.");
       }
+
+      Serial.print(F("[STATUS] "));
+      Serial.print(hour()); Serial.print(F(":"));
+      if (minute() < 10) Serial.print(F("0"));
+      Serial.print(minute());
+      Serial.print(shut_down_flag ? F(" night") : F(" day"));
+      Serial.print(F("  batt="));
+      Serial.print(ina219b_battery_volts, 2);
+      Serial.print(F("V"));
+      if (shut_down_flag && ina219b_battery_volts < battery_critical_voltage) {
+        Serial.print(F(" LOW"));
+      }
+      if (shut_down_flag && (minutesToday < sunrise - minutesBeforeSunrise)) {
+        Serial.print(F("  day@"));
+        Serial.print((sunrise - minutesBeforeSunrise) / 60); Serial.print(F(":"));
+        Serial.print((sunrise - minutesBeforeSunrise) % 60);
+      } else if (!shut_down_flag) {
+        Serial.print(F("  night@"));
+        Serial.print((sunset + minutesAfterSunset) / 60); Serial.print(F(":"));
+        Serial.print((sunset + minutesAfterSunset) % 60);
+      }
+      Serial.println();
 
       // Going to sleep if required according to criteria above:
       if (shut_down_flag) {
@@ -1091,11 +1116,9 @@ void loop()
       if ((ina219b_battery_ma > 2500) and ( (resumeSolarStartTime + resumeSolarMinutes * 60) <= now() )) {
 
         // Charging too fast. Poor man's slowdown: turn off the solar panel for a bit. 8-o
-        Serial.println();
-        Serial.print(getTimeWithZeros());
-        Serial.print(F(": Pausing Solar Panels because charge rate "));
+        Serial.print(F("[SOLAR] pause charge "));
         Serial.print(ina219b_battery_ma, 0);
-        Serial.println(F(" was > 2500mA."));
+        Serial.println(F(" mA > 2500"));
         pauseSolar = true;
         pauseSolarChargeCurrent = ina219b_battery_ma;
         pauseSolarStartTime = now();
@@ -1105,17 +1128,9 @@ void loop()
 
         // If we're currently on a pause, let's see if we should enable charging again.
         if (pauseSolar) {
-          Serial.print(F(" Solar is paused, seconds left: "));
-          Serial.print(pauseSolarStartTime + pauseSolarMinutes * 60);
-          Serial.print(" - ");
-          Serial.print(now());
-          Serial.print(" = ");
-          Serial.println((pauseSolarStartTime + pauseSolarMinutes * 60) - now());
           if ( (pauseSolarStartTime + pauseSolarMinutes * 60) <= now() ) {
             //It's been enough time with the Panels off. Turn them back on.
-            Serial.println();
-            Serial.print(getTimeWithZeros());
-            Serial.println(F(": RESUMING Solar Panels, it's been long enough with them turned off"));
+            wxLogTag(F("SOLAR"), F("resume charging"));
             pauseSolarChargeCurrent = 0;
             pauseSolar = false;
             enableSolar();
@@ -1136,18 +1151,19 @@ void loop()
       //Once the time is reporting that it's synced and it's been at least 15 secs since boot, start reporting weather.
 #ifdef BENCH_MODE
       if (seconds > 15) {
-        justBooted = false;
+        finishBootAndCacheWeather();
         justRestarted = false;
       }
 #else
-      if ((seconds > 15) and (timeStatus() == timeSet)) justBooted = false;
+      if ((seconds > 15) and (timeStatus() == timeSet)) finishBootAndCacheWeather();
 #endif
     } else {
       if (lastRealMinute != minute()) { // new minute! Let's party.
         lastRealMinute = minute();
         tempWeatherString = getWeatherString();
+        Serial.print(F("[WX] "));
         Serial.println(tempWeatherString);
-        wxStringCache[minute() % 10] = tempWeatherString;
+        saveWeatherToCache(tempWeatherString);
         ina219a_solar_MMAloops = 0;  //Reset to zero after upload (even if not successful)
 
 #ifndef BENCH_MODE
@@ -1159,29 +1175,16 @@ void loop()
         if ((minute() % 5 == 0) and (millis() > 180000)) { // upload weather at every even 5 minutes and if stations runs for more than 3 minutes 
           //Time to upload!
           uploadPending = true;
+          wxLogSection(F("UPLOAD"));
           enableEthernet();
           if (ethEnabled){ //if enableEthernet() fails to establish a connection, skip everything and shut connection down until next five minutes
             msTemp = millis();
-            if (minute() % 10 == 0) {
-              // upload 6, 7, 8, 9, 0
-              for (int i = 6; i <= 10; i++) {
-                wdt_reset();
-                if (not (wxStringCache[i % 10] == "")) uploadStatus = uploadWeather(wxStringCache[i % 10]);
-                // resetEthernet(); // jlt 2024-01. To prevent crash of socket. Takes about 3 seconds.
-              }
-            } else {
-              // upload 1, 2, 3, 4, 5
-              for (int i = 1; i <= 5; i++) {
-                wdt_reset();
-                if (not (wxStringCache[i] == "")) uploadStatus = uploadWeather(wxStringCache[i]);
-                // resetEthernet(); // jlt 2024-01. To prevent crash of socket. Takes about 3 seconds.
-              }
-            }
+            uploadCachedWeather(minute(), uploadStatus);
             // Done sending, hope it worked! (error handling later) Turn off Eth & Wifi until the next 5 minute boundary.
 			
 			if (uploadStatus==0){ // Means upload was successful
 				if (reportWatchdog) {
-					Serial.println(F("  Clearing watchdog EEPROM flag"));
+					wxLogTag(F("UP"), F("watchdog EEPROM flag cleared"));
 					reportWatchdog = 0;
 					EEPROM.update(eeWatchdog, 0);   //Clear the watchdog-happened bit once we have reason to believe it's been reported.
 				}
@@ -1196,7 +1199,7 @@ void loop()
                   ntp_time_temp = getNtpTime();
                   if (isTimeValid(ntp_time_temp)){ // Only update when time is valid
                     RTC.set(ntp_time_temp);
-                    Serial.println("RTC update via NTP successful!");
+                    wxLogTag(F("NTP"), F("RTC updated"));
                     rtc_got_update_from_ntp = true;
                     setSyncProvider([](){return RTC.get();}); // Update Arduino time immediately.
                   } else{
@@ -1209,7 +1212,7 @@ void loop()
             #endif
 
             // Check for incoming connections for a few seconds. This isn't super clean, but it's easy.
-            Serial.println("Waiting for incoming Telnet data...");
+            wxLogTag(F("NET"), F("telnet listen (8s)"));
             for (unsigned int i = 0; i <= waitTimeIncomingClient; i++){
               checkEthIncomingData();
               wdt_reset();
@@ -1220,6 +1223,7 @@ void loop()
           }
           disableWifi(); // Continuous Wifi operation is required if cameras are running. Correspondingly, keepUbiquitiOn flag and wifiStartTime are checked within disableWifi();
           disableEthernet();
+          wxLogRule();
           uploadPending = false;
         } // End every 5th minute: if (minute() %5 == 0)
 #else  // BENCH_MODE — upload over Ethernet every 5 minutes, no Ubiquiti wait
@@ -1227,17 +1231,7 @@ void loop()
           if (not ethEnabled) enableEthernet();
           if (ethEnabled) {
             msTemp = millis();
-            if (minute() % 10 == 0) {
-              for (int i = 6; i <= 10; i++) {
-                wdt_reset();
-                if (not (wxStringCache[i % 10] == "")) uploadStatus = uploadWeather(wxStringCache[i % 10]);
-              }
-            } else {
-              for (int i = 1; i <= 5; i++) {
-                wdt_reset();
-                if (not (wxStringCache[i] == "")) uploadStatus = uploadWeather(wxStringCache[i]);
-              }
-            }
+            uploadCachedWeather(minute(), uploadStatus);
 
             if (uploadStatus==0) {
               if (reportWatchdog) {
@@ -1255,7 +1249,7 @@ void loop()
                   ntp_time_temp = getNtpTime();
                   if (isTimeValid(ntp_time_temp)) {
                     RTC.set(ntp_time_temp);
-                    Serial.println("RTC update via NTP successful!");
+                    wxLogTag(F("NTP"), F("RTC updated"));
                     rtc_got_update_from_ntp = true;
                     setSyncProvider([](){return RTC.get();});
                   } else {
@@ -1267,7 +1261,7 @@ void loop()
               }
             #endif
 
-            Serial.println("Waiting for incoming Telnet data...");
+            wxLogTag(F("NET"), F("telnet listen (8s)"));
             for (unsigned int i = 0; i <= waitTimeIncomingClient; i++) {
               checkEthIncomingData();
               wdt_reset();
@@ -1289,8 +1283,6 @@ void loop()
     **/
     //if (justBooted) Serial.println(getWeatherString());               // print every second for the first 15 secs after booting.
     //else if (seconds % 10 == 0) Serial.println(getWeatherString());   // then every 10 seconds
-    if (justBooted and seconds % 3 == 0) Serial.println(getWeatherString());           // print every second for the first 15 secs after booting.
-
   } // END of ONCE A SECOND loop (every 1000ms)
 
 
@@ -1374,10 +1366,71 @@ void loop()
 // HELPER FUNCTIONS
 //*****************
 
+void saveWeatherToCache(const String& weatherString) {
+  byte slot = minute() % 10;
+  wxStringCache[slot] = weatherString;
+  wxCacheSlotMinute[slot] = minute();
+  wxCacheSlotHour[slot] = hour();
+  wxCache_lastSaved = minute();
+}
+
+void finishBootAndCacheWeather() {
+  justBooted = false;
+  lastRealMinute = minute();
+  tempWeatherString = getWeatherString();
+  Serial.print(F("[WX] "));
+  Serial.println(tempWeatherString);
+  saveWeatherToCache(tempWeatherString);
+}
+
+bool isValidWeatherString(const String& weatherString) {
+  if (weatherString.length() < 12) return false;
+  if (weatherString.charAt(2) != ':') return false;
+  if (weatherString.indexOf(',') < 0) return false;
+  return true;
+}
+
+bool shouldUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour, const String& weatherString) {
+  if (!isValidWeatherString(weatherString)) return false;
+  if (wxCacheSlotMinute[slot] == wxCacheSlotInvalid) return false;
+  if (wxCacheSlotHour[slot] == wxCacheSlotInvalid) return false;
+  if (wxCacheSlotMinute[slot] != expectedMinute) return false;
+  if (wxCacheSlotHour[slot] != expectedHour) return false;
+  return true;
+}
+
+void uploadCachedWeather(byte uploadMinute, byte& uploadStatus) {
+  if (uploadMinute % 10 == 0) {
+    for (int i = 6; i <= 10; i++) {
+      byte slot = i % 10;
+      byte expectedMinute = (uploadMinute + i - 10) % 60;
+      byte expectedHour = hour();
+      if (expectedMinute > uploadMinute) expectedHour = (expectedHour + 23) % 24;
+      wdt_reset();
+      if (shouldUploadCacheSlot(slot, expectedMinute, expectedHour, wxStringCache[slot])) {
+        uploadStatus = uploadWeather(wxStringCache[slot]);
+      }
+    }
+  } else {
+    byte baseMinute = uploadMinute - (uploadMinute % 10) + 1;
+    for (int i = 1; i <= 5; i++) {
+      byte slot = i;
+      byte expectedMinute = baseMinute + i - 1;
+      wdt_reset();
+      if (shouldUploadCacheSlot(slot, expectedMinute, hour(), wxStringCache[slot])) {
+        uploadStatus = uploadWeather(wxStringCache[slot]);
+      }
+    }
+  }
+}
+
 byte uploadWeather(String WeatherString)
 {
-  Serial.println("UploadWeather() called.");
-  //String tempWeatherString = getWeatherString(); //jjj per lance
+  if (!isValidWeatherString(WeatherString)) {
+    Serial.println(F("[UP] skip invalid weather string"));
+    return 51;
+  }
+
   String WeatherString2;
   WeatherString2 = WeatherString;
   if (justRestarted) {
@@ -1385,7 +1438,7 @@ byte uploadWeather(String WeatherString)
     if (!stationDefinesSent) {
       String definesSuffix = makeStationDefinesSuffix();
       WeatherString2 += definesSuffix;
-      Serial.print(F("First upload appending defines"));
+      Serial.print(F("[UP] +defines "));
       Serial.println(definesSuffix);
       stationDefinesSent = true;
     }
@@ -1426,10 +1479,6 @@ byte uploadWeather(String WeatherString)
 #endif
   
   // Connect to CSS website, do a PUT with weather values. Should be called once for every minute of weather data.
-  logSome(F("  uploadWeather called, building string. Bytes free: "));
-  logSome(freeRam());
-  // jjj                logSome(". ina219a_solar readings this minute: ");
-  /// jjj always zero!  logOneLine(ina219a_solar_MMAloops);
   byte uploadStatus = 90; //90 = haven't tried stopping the client yet.
   String strPut;
 
@@ -1463,21 +1512,36 @@ byte uploadWeather(String WeatherString)
   }
   strPut.toCharArray(charPut, strPutLength + 1);
 
+  Serial.print(F("[UP] w="));
+  Serial.println(WeatherString2);
+  Serial.print(F("[UP] PUT "));
+  Serial.println(charPut);
+
   client.setTimeout(600); //timeout in ms
   int clientConnectStatus;
   wdt_reset();
   clientConnectStatus = client.connect(CSSserver, 80);
   wdt_reset();
   if (clientConnectStatus) {
-    logSome(F("Ether client connected for uploadWeather. Mem: "));
-    logSome(freeRam());
-    logSome(", connect status: ");
-    logOneLine(clientConnectStatus);
+    Serial.print(F("[UP] connected (status "));
+    Serial.print(clientConnectStatus);
+    Serial.print(F(")  mem "));
+    Serial.println(freeRam());
 
     // Make an HTTP request:
     if (enableEthDump2Serial) { Serial.write(charPut, strPutLength); }
-    client.write(charPut, strPutLength); //Better chance of a single packet by using a char[].
+    size_t written = client.write(charPut, strPutLength); //Better chance of a single packet by using a char[].
     wdt_reset();
+    if (written != (size_t)strPutLength) {
+      Serial.print(F("[UP] write incomplete: "));
+      Serial.print(written);
+      Serial.print(F("/"));
+      Serial.println(strPutLength);
+      client.stop();
+      ethConnFails++;
+      uploadStatus = 202;
+      return uploadStatus;
+    }
     ethLastMillis = millis();
     // client.flush() can spin forever if the link dies; poll TX drain with a timeout instead.
     uint32_t flushStart = millis();
@@ -1501,8 +1565,8 @@ byte uploadWeather(String WeatherString)
     
   } else {
     // if you didn't get a connection to the server:
-    logSome(F("connection failed, status: "));
-    logOneLine(clientConnectStatus);
+    Serial.print(F("[UP] connection failed, status "));
+    Serial.println(clientConnectStatus);
     ethLastFailureCode = clientConnectStatus;
     client.stop();
     ethConnFails++;
@@ -1510,8 +1574,8 @@ byte uploadWeather(String WeatherString)
   }
 
   wdt_reset();
-  logSome(F("  uploadWeather() finished, free mem: "));
-  logOneLine(freeRam());
+  Serial.print(F("[UP] done  mem "));
+  Serial.println(freeRam());
   return uploadStatus;
 }
 

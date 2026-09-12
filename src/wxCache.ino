@@ -152,7 +152,7 @@ void sdLogData(char *fileName, String logData) {
 
   msTemp = millis();
   usTemp = micros();
-  Serial.print("Writing to SD file "); Serial.print(fileName); Serial.print("; ");
+  Serial.print(F("[SD] write ")); Serial.println(fileName);
 
   bool sdEnabledEthernet = false;
   if (not ethEnabled) {
@@ -164,7 +164,6 @@ void sdLogData(char *fileName, String logData) {
   if (!file.open(fileName, O_CREAT | O_WRITE | O_APPEND)) {
     sdErr("file.open");
   }
-  Serial.print(F(" open, setting dateTimeCallback."));
   file.dateTimeCallback(sdDateTime);
 
   // Write the line of data, plus a newline for now. Subject to change.
@@ -182,11 +181,10 @@ void sdLogData(char *fileName, String logData) {
 
   if (sdEnabledEthernet) disableEthernet();
 
-  Serial.print(F(" done writing. Took "));
-  Serial.print(millis() - msTemp); Serial.print("ms, ");
-  //Serial.print(micros() - usTemp); Serial.print("us. ");
-  Serial.print(F("file position: ")); Serial.println(sdPosition);
-  Serial.println();
+  Serial.print(F("[SD] done "));
+  Serial.print(millis() - msTemp);
+  Serial.print(F(" ms  pos "));
+  Serial.println(sdPosition);
   
 }
 
@@ -263,7 +261,6 @@ void sdDateTime(uint16_t* sd_date, uint16_t* sd_time) {
   uint8_t sd_month, sd_day, sd_hour, sd_minute, sd_second;
   // User gets date and time from GPS or real-time clock here
 
-  Serial.print(F(" -sdDateTime- " )); Serial.print(getTimeWithZeros());
 
   sd_year   = year();
   sd_month  = month();
