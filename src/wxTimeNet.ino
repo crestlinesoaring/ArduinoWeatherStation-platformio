@@ -444,20 +444,9 @@ void enableEthernet(bool quiet) {
   Ethernet.begin(mac, ip, dnsServer, gateway, subnet); // Eth must be initialized after each power up
   delayWithWdt(EthStartupDelay);                  // must wait at least @ 5000ms; feed WD during wait
   wdt_reset();
-#ifdef NET_CONNECTIVITY_CHECKS
-  if (!waitForEthernetLink(NET_LINK_WAIT_MS)) {
-    if (!quiet) wxLogTag(F("NET"), F("ethernet link timeout"));
-    ethernetPowerOff();
-    return;
-  }
-#endif
   if (!quiet) {
     Serial.print(F("[NET] ethernet up  IP "));
     Serial.println(Ethernet.localIP());
-#ifdef NET_CONNECTIVITY_CHECKS
-    Serial.print(F("[NET] link "));
-    Serial.println(Ethernet.linkStatus() == LinkON ? F("on") : F("off"));
-#endif
   }
   W5100.setRetransmissionTime(0x07D0);            // reduce wait
   W5100.setRetransmissionCount(4);
