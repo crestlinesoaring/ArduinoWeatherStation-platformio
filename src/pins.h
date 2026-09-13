@@ -9,6 +9,11 @@
 
 // BENCH_MODE and DONT_SLEEP are set via PlatformIO build flags (see platformio.ini),
 // not defined here.
+#ifdef DONT_SLEEP
+const bool wxDontSleep = true;
+#else
+const bool wxDontSleep = false;
+#endif
 
 void ws85Init();
 void ws85Poll();

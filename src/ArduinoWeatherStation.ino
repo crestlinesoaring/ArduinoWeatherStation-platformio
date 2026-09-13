@@ -803,8 +803,12 @@ void setup()
   minutesToday = hour() * 60 + minute();
   if ((minutesToday < sunrise - minutesBeforeSunrise)
   or  (minutesToday > sunset  + minutesAfterSunset)){
-    Serial.print(F("[BOOT] night — sleeping until "));
-    Serial.print((sunrise - minutesBeforeSunrise) / 60); Serial.print(F(":")); Serial.println((sunrise - minutesBeforeSunrise) % 60);
+    if (wxDontSleep) {
+      Serial.println(F("[BOOT] night (skipping sleep)"));
+    } else {
+      Serial.print(F("[BOOT] night — sleeping until "));
+      Serial.print((sunrise - minutesBeforeSunrise) / 60); Serial.print(F(":")); Serial.println((sunrise - minutesBeforeSunrise) % 60);
+    }
     goToSleep();
   }
 #endif
@@ -1065,6 +1069,8 @@ void loop()
       *  S H U T   D O W N
       * * * * * * * * * * * * * * * * * */
     
+      shut_down_flag = false;
+
       // Is it night time?
       minutesToday = hour() * 60 + minute();
       if ((minutesToday < sunrise - minutesBeforeSunrise) // Add 40 minutes in the morning because station restarts every hour only.
@@ -1081,7 +1087,12 @@ void loop()
       Serial.print(hour()); Serial.print(F(":"));
       if (minute() < 10) Serial.print(F("0"));
       Serial.print(minute());
-      Serial.print(shut_down_flag ? F(" night") : F(" day"));
+      if (shut_down_flag) {
+        Serial.print(F(" night"));
+        if (wxDontSleep) Serial.print(F(" (skipping sleep)"));
+      } else {
+        Serial.print(F(" day"));
+      }
       Serial.print(F("  batt="));
       Serial.print(ina219b_battery_volts, 2);
       Serial.print(F("V"));
@@ -1424,10 +1435,48 @@ void uploadCachedWeather(byte uploadMinute, byte& uploadStatus) {
   }
 }
 
+static void printUploadPutLine(const char* charPut, int length) {
+  Serial.print(F("[UP] PUT "));
+  for (int i = 0; i < length; i++) {
+    char c = charPut[i];
+    if (c == '\r' || c == '\n') Serial.print(' ');
+    else Serial.print(c);
+  }
+  Serial.println();
+}
+
+static void printUploadResult(byte status, int detail = 0) {
+  if (status == 0) {
+    Serial.println(F("[UP] SUCCESS"));
+    return;
+  }
+  Serial.print(F("[UP] FAILED ("));
+  Serial.print(status);
+  Serial.print(F("): "));
+  switch (status) {
+    case 50: Serial.println(F("network not ready")); break;
+    case 51: Serial.println(F("invalid weather string")); break;
+    case 200:
+      Serial.print(F("connection failed"));
+      if (detail != 0) {
+        Serial.print(F(", status "));
+        Serial.print(detail);
+      }
+      Serial.println();
+      break;
+    case 202:
+      Serial.print(F("write incomplete "));
+      Serial.print(detail);
+      Serial.println(F(" bytes sent"));
+      break;
+    default: Serial.println(F("unknown")); break;
+  }
+}
+
 byte uploadWeather(String WeatherString)
 {
   if (!isValidWeatherString(WeatherString)) {
-    Serial.println(F("[UP] skip invalid weather string"));
+    printUploadResult(51);
     return 51;
   }
 
@@ -1458,23 +1507,23 @@ byte uploadWeather(String WeatherString)
   
 #ifdef BENCH_MODE
   if (!ethEnabled) {
-    Serial.println(F("uploadWeather() — Ethernet not ready, skipping."));
+    printUploadResult(50);
     return 50;
   }
 #else
   if (!wifiEnabled) {
-    Serial.println("ABORT DATA UPLOAD: WiFi is not enabled.");
+    printUploadResult(50);
     return 50;
   }
   
   if (digitalRead(PIN_UBIQUITI_POWER) == UBIQUITI_OFF){
-	Serial.println("ABORT DATA UPLOAD: WiFi power pin is switched off.");
-	return 50;
+    printUploadResult(50);
+    return 50;
   }
   
   if (digitalRead(PIN_ETH_POWER) == ETH_OFF){
-	Serial.println("ABORT DATA UPLOAD: Ethernet power pin is switched off.");
-	return 50;
+    printUploadResult(50);
+    return 50;
   }
 #endif
   
@@ -1514,8 +1563,7 @@ byte uploadWeather(String WeatherString)
 
   Serial.print(F("[UP] w="));
   Serial.println(WeatherString2);
-  Serial.print(F("[UP] PUT "));
-  Serial.println(charPut);
+  printUploadPutLine(charPut, strPutLength);
 
   client.setTimeout(600); //timeout in ms
   int clientConnectStatus;
@@ -1523,23 +1571,15 @@ byte uploadWeather(String WeatherString)
   clientConnectStatus = client.connect(CSSserver, 80);
   wdt_reset();
   if (clientConnectStatus) {
-    Serial.print(F("[UP] connected (status "));
-    Serial.print(clientConnectStatus);
-    Serial.print(F(")  mem "));
-    Serial.println(freeRam());
-
     // Make an HTTP request:
     if (enableEthDump2Serial) { Serial.write(charPut, strPutLength); }
     size_t written = client.write(charPut, strPutLength); //Better chance of a single packet by using a char[].
     wdt_reset();
     if (written != (size_t)strPutLength) {
-      Serial.print(F("[UP] write incomplete: "));
-      Serial.print(written);
-      Serial.print(F("/"));
-      Serial.println(strPutLength);
       client.stop();
       ethConnFails++;
       uploadStatus = 202;
+      printUploadResult(uploadStatus, (int)written);
       return uploadStatus;
     }
     ethLastMillis = millis();
@@ -1564,9 +1604,6 @@ byte uploadWeather(String WeatherString)
     ethTimeouts = 0;
     
   } else {
-    // if you didn't get a connection to the server:
-    Serial.print(F("[UP] connection failed, status "));
-    Serial.println(clientConnectStatus);
     ethLastFailureCode = clientConnectStatus;
     client.stop();
     ethConnFails++;
@@ -1574,8 +1611,11 @@ byte uploadWeather(String WeatherString)
   }
 
   wdt_reset();
-  Serial.print(F("[UP] done  mem "));
-  Serial.println(freeRam());
+  if (uploadStatus == 200) {
+    printUploadResult(uploadStatus, clientConnectStatus);
+  } else {
+    printUploadResult(uploadStatus);
+  }
   return uploadStatus;
 }
 

@@ -278,8 +278,7 @@ void goToSleep(){
   // Disables the entire station until next hardware reset.
 
 #ifdef DONT_SLEEP
-  Serial.println(F("DONT_SLEEP is set, skipping sleep!"));
-  return;
+  return; // skip reported on [STATUS] night line
 #endif
 
   keepUbiquitiOn = false;

@@ -899,6 +899,6 @@ String makeUploadWeatherPut(String wxString) {
   strPut += wxString;
   strPut += F(" HTTP/1.1\r\nHost: ");
   strPut += wxSiteName;
-  strPut += F("\r\nConnection: close\r\n\r\n\r\n");
+  strPut += F("\r\nConnection: close\r\n\r\n");
   return strPut;
 }
