@@ -1412,35 +1412,19 @@ bool shouldUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour, co
   return true;
 }
 
-static byte expectedCacheMinute(byte uploadMinute, int i) {
-  // Must use signed math: at :00, (0 + 6 - 10) underflows as byte to 252, not 56.
-  int m = (int)uploadMinute + i - 10;
-  m %= 60;
-  if (m < 0) m += 60;
-  return (byte)m;
-}
-
 void uploadCachedWeather(byte uploadMinute, byte& uploadStatus) {
-  if (uploadMinute % 10 == 0) {
-    for (int i = 6; i <= 10; i++) {
-      byte slot = i % 10;
-      byte expectedMinute = expectedCacheMinute(uploadMinute, i);
-      byte expectedHour = hour();
-      if (expectedMinute > uploadMinute) expectedHour = (expectedHour + 23) % 24;
-      wdt_reset();
-      if (shouldUploadCacheSlot(slot, expectedMinute, expectedHour, wxStringCache[slot])) {
-        uploadStatus = uploadWeather(wxStringCache[slot]);
-      }
-    }
-  } else {
-    byte baseMinute = uploadMinute - (uploadMinute % 10) + 1;
-    for (int i = 1; i <= 5; i++) {
-      byte slot = i;
-      byte expectedMinute = baseMinute + i - 1;
-      wdt_reset();
-      if (shouldUploadCacheSlot(slot, expectedMinute, hour(), wxStringCache[slot])) {
-        uploadStatus = uploadWeather(wxStringCache[slot]);
-      }
+  // Five-minute batches aligned to 0-4, 5-9, ... 50-54, then 55-59 at :00.
+  // (Old logic used 1-5 / 6-0 decades and broke at :00 due to byte underflow.)
+  byte baseMinute = ((uploadMinute / 5) * 5 + 55) % 60;
+  byte expectedHour = hour();
+  for (byte k = 0; k < 5; k++) {
+    byte expectedMinute = (baseMinute + k) % 60;
+    byte slot = expectedMinute % 10;
+    byte slotHour = expectedHour;
+    if (expectedMinute > uploadMinute) slotHour = (expectedHour + 23) % 24;
+    wdt_reset();
+    if (shouldUploadCacheSlot(slot, expectedMinute, slotHour, wxStringCache[slot])) {
+      uploadStatus = uploadWeather(wxStringCache[slot]);
     }
   }
 }
