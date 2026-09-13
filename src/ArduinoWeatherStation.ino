@@ -58,6 +58,7 @@ const int EthStartupDelay = 5000; // Milliseconds to wait for Ethernet Shield to
 int minutesBeforeSunrise = 70;              // Minutes before sunrise to wake and start sending data. Should consider additional time because reboot happens every hour only -> might miss the sunrise.
 int minutesAfterSunset = 30;                // Minutes after sunset to stay awake before sleep().
 const unsigned int waitTimeIncomingClient = 8; // This variable sets the time the Telnet loop waits for input. Minimum is 1. Default 8. Maximum is 3600.
+const byte uploadRetryNum = 1; // Extra PUT attempts after a connect/write failure (0 = one try only).
 float battery_ma_offset = 30.0; // INA219 current measurements sometimes show an offset that needs correction. Battery_ma_offset [mA] will be added to the measured signal.
 
 // Critically low voltage for battery. Depends on battery type (defined above). AGM: 13V~max 11.8V~30%, Lifepo4: 14.9~max 13.00V~30%.
@@ -583,8 +584,9 @@ void setup()
 #ifdef ENABLE_HARDWARE_SIMULATION
   Serial.println(F("  ENABLE_HARDWARE_SIMULATION"));
 #endif
-
-
+  if (uploadRetryNum > 0) {
+    Serial.print(F("  uploadRetryNum=")); Serial.println(uploadRetryNum);
+  }
   //Enable the WatchDog, 8 second timeout.
   //wdt_enable(WDTO_8S);
   enableWatchdog();
@@ -1500,9 +1502,9 @@ byte uploadWeather(String WeatherString)
   char charPut[uploadBufSize];
 
   //Save to SD, even if we don't succeed uploading
-  char fileName[13];
-  String strTemp = getDateWithZerosNoSeparator() + ".dat";
-  strTemp.toCharArray(fileName, 13);
+  // char fileName[13];
+  // String strTemp = getDateWithZerosNoSeparator() + ".dat";
+  // strTemp.toCharArray(fileName, 13);
   //sdLogData(fileName, charPut);
   
 #ifdef BENCH_MODE
@@ -1563,23 +1565,45 @@ byte uploadWeather(String WeatherString)
 
   printUploadPutLine(charPut, strPutLength);
 
-  client.setTimeout(600); //timeout in ms
-  int clientConnectStatus;
-  wdt_reset();
-  clientConnectStatus = client.connect(CSSserver, 80);
-  wdt_reset();
-  if (clientConnectStatus) {
-    // Make an HTTP request:
+  int clientConnectStatus = 0;
+  int writeDetail = 0;
+  uploadStatus = 200;
+
+  for (byte attempt = 0; attempt <= uploadRetryNum; attempt++) {
+    if (attempt > 0) {
+      Serial.print(F("[UP] retry "));
+      Serial.print(attempt);
+      Serial.print(F("/"));
+      Serial.println(uploadRetryNum);
+      client.stop();
+      while (client.available()) {
+        wdt_reset();
+        client.read();
+      }
+      delayWithWdt(500);
+    }
+
+    client.setTimeout(600); //timeout in ms
+    wdt_reset();
+    clientConnectStatus = client.connect(CSSserver, 80);
+    wdt_reset();
+    if (!clientConnectStatus) {
+      ethLastFailureCode = clientConnectStatus;
+      client.stop();
+      uploadStatus = 200;
+      continue;
+    }
+
     if (enableEthDump2Serial) { Serial.write(charPut, strPutLength); }
     size_t written = client.write(charPut, strPutLength); //Better chance of a single packet by using a char[].
     wdt_reset();
     if (written != (size_t)strPutLength) {
       client.stop();
-      ethConnFails++;
+      writeDetail = (int)written;
       uploadStatus = 202;
-      printUploadResult(uploadStatus, (int)written);
-      return uploadStatus;
+      continue;
     }
+
     ethLastMillis = millis();
     // client.flush() can spin forever if the link dies; poll TX drain with a timeout instead.
     uint32_t flushStart = millis();
@@ -1596,21 +1620,22 @@ byte uploadWeather(String WeatherString)
       char c = client.read();
       if (enableEthDump2Serial) Serial.print(c);
     }
-    
+
     uploadStatus = 0;
     ethConnFails = 0;
     ethTimeouts = 0;
-    
-  } else {
-    ethLastFailureCode = clientConnectStatus;
-    client.stop();
+    break;
+  }
+
+  if (uploadStatus != 0) {
     ethConnFails++;
-    uploadStatus = 200; // connection failed
   }
 
   wdt_reset();
   if (uploadStatus == 200) {
     printUploadResult(uploadStatus, clientConnectStatus);
+  } else if (uploadStatus == 202) {
+    printUploadResult(uploadStatus, writeDetail);
   } else {
     printUploadResult(uploadStatus);
   }
