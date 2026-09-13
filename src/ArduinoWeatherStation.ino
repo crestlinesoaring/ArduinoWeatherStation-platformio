@@ -1436,7 +1436,7 @@ void uploadCachedWeather(byte uploadMinute, byte& uploadStatus) {
 }
 
 static void printUploadPutLine(const char* charPut, int length) {
-  Serial.print(F("[UP] PUT "));
+  Serial.print(F("[UP] "));
   for (int i = 0; i < length; i++) {
     char c = charPut[i];
     if (c == '\r' || c == '\n') Serial.print(' ');
@@ -1561,8 +1561,6 @@ byte uploadWeather(String WeatherString)
   }
   strPut.toCharArray(charPut, strPutLength + 1);
 
-  Serial.print(F("[UP] w="));
-  Serial.println(WeatherString2);
   printUploadPutLine(charPut, strPutLength);
 
   client.setTimeout(600); //timeout in ms
