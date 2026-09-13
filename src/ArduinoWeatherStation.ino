@@ -1412,11 +1412,19 @@ bool shouldUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour, co
   return true;
 }
 
+static byte expectedCacheMinute(byte uploadMinute, int i) {
+  // Must use signed math: at :00, (0 + 6 - 10) underflows as byte to 252, not 56.
+  int m = (int)uploadMinute + i - 10;
+  m %= 60;
+  if (m < 0) m += 60;
+  return (byte)m;
+}
+
 void uploadCachedWeather(byte uploadMinute, byte& uploadStatus) {
   if (uploadMinute % 10 == 0) {
     for (int i = 6; i <= 10; i++) {
       byte slot = i % 10;
-      byte expectedMinute = (uploadMinute + i - 10) % 60;
+      byte expectedMinute = expectedCacheMinute(uploadMinute, i);
       byte expectedHour = hour();
       if (expectedMinute > uploadMinute) expectedHour = (expectedHour + 23) % 24;
       wdt_reset();
