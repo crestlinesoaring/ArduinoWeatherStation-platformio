@@ -202,7 +202,8 @@ byte telnetSeconds = 0;     //Seconds spent in a telnet session.
 byte sunriseDay = 0;        //Day we last calculated sunrise/sunset for. If it's not today, calc again.
 byte lastRealMinute;        //Keep track of when it's a new minute() (Real time, not runtime). Used to check for second() == 0, but that's not reliable.
 bool justBooted = true;     //Some stuff settles after the first minute, so let's keep track of that.
-bool justRestarted = true;  //Print an R at the end of the first upload attempt to make it easy to see a reboot.
+bool rebootMarkerPending = true;    // Add ,R and boot EEPROM fields to the first weather string only.
+bool stationDefinesPending = true;  // Append station defines to the first upload only.
 bool ethEnabled = false;    //Set once Eth is enabled because enabling incurs a 30 second pause that we don't want to repeat.
 bool wifiEnabled = false;   //Set once wifi is enabled so we don't transmit when it's not on.
 bool keepUbiquitiOn = false;    // Used for testing, when we need the wifi to stay powererd on all day.
@@ -582,6 +583,9 @@ void setup()
 #endif
 #ifdef ENABLE_HARDWARE_SIMULATION
   Serial.println(F("  ENABLE_HARDWARE_SIMULATION"));
+#endif
+#ifdef NET_CONNECTIVITY_CHECKS
+  Serial.println(F("  NET_CONNECTIVITY_CHECKS"));
 #endif
 
 
@@ -1152,7 +1156,8 @@ void loop()
 #ifdef BENCH_MODE
       if (seconds > 15) {
         finishBootAndCacheWeather();
-        justRestarted = false;
+        rebootMarkerPending = false;
+        stationDefinesPending = false;
       }
 #else
       if ((seconds > 15) and (timeStatus() == timeSet)) finishBootAndCacheWeather();
@@ -1189,7 +1194,6 @@ void loop()
 					EEPROM.update(eeWatchdog, 0);   //Clear the watchdog-happened bit once we have reason to believe it's been reported.
 				}
 				ethLastFailureCode = 0;
-				justRestarted = false;     //reset this HERE so it stays "true" until a successful ethernet connection has happened.
 			}
 
             // Update RTC from NTP Server data:
@@ -1240,7 +1244,6 @@ void loop()
                 EEPROM.update(eeWatchdog, 0);
               }
               ethLastFailureCode = 0;
-              justRestarted = false;
             }
 
             #ifndef SIMULATE_RTC
@@ -1433,16 +1436,6 @@ byte uploadWeather(String WeatherString)
 
   String WeatherString2;
   WeatherString2 = WeatherString;
-  if (justRestarted) {
-    static bool stationDefinesSent = false;
-    if (!stationDefinesSent) {
-      String definesSuffix = makeStationDefinesSuffix();
-      WeatherString2 += definesSuffix;
-      Serial.print(F("[UP] +defines "));
-      Serial.println(definesSuffix);
-      stationDefinesSent = true;
-    }
-  }
   //WeatherString2 += String(charComma);
   //WeatherString2 += getTimeWithZeros();
   //WeatherString2 += String(charComma);
@@ -1475,6 +1468,19 @@ byte uploadWeather(String WeatherString)
   if (digitalRead(PIN_ETH_POWER) == ETH_OFF){
 	Serial.println("ABORT DATA UPLOAD: Ethernet power pin is switched off.");
 	return 50;
+  }
+#endif
+
+#ifdef NET_CONNECTIVITY_CHECKS
+  if (Ethernet.linkStatus() != LinkON) {
+    Serial.println(F("[UP] abort: ethernet link down"));
+    ethConnFails++;
+    return 52;
+  }
+  if (!pingGateway(NET_GATEWAY_PING_MS)) {
+    Serial.println(F("[UP] abort: gateway unreachable"));
+    ethConnFails++;
+    return 53;
   }
 #endif
   
@@ -1765,13 +1771,8 @@ String getWeatherString() {
   weatherString += String(charComma);
   weatherString += String(battDrainmA / 60.0, 1);
 
-  // 22-24: Boot, Sleep, and Watchdog counters
-  if (justRestarted) {
-    //weatherString += String(charComma);  //<-- moved this up a few lines to the battDrainmA print
-    // Boot counter suspended because it was writing to EEPROM too often.
-    //EEPROM.get(eeBootCounter, eeUIntTemp);
-    //weatherString += String(eeUIntTemp);
-
+  // 22-24: Boot, Sleep, and Watchdog counters (first reading after reboot only)
+  if (rebootMarkerPending) {
     weatherString += String(charComma);
     EEPROM.get(eeVoltsLowestSeen, eeByteTemp);
     weatherString += String((float)eeByteTemp / 10.0);
@@ -1830,24 +1831,14 @@ String getWeatherString() {
     weatherString += String(minute(reportWatchdog));
   }
 
-  // Tack on a ,R if we've rebooted to make it easier to spot them
-  if(justRestarted) {
+  // First reading after reboot: ,R marker and station defines (once only)
+  if (rebootMarkerPending) {
     weatherString += ",R";
-/* // jjj 22a 
-    if (rainin) {
-      weatherString += ",p02-";
-      weatherString += String(rainin);
+    if (stationDefinesPending) {
+      weatherString += makeStationDefinesSuffix();
+      stationDefinesPending = false;
     }
-    if (pin18Clicks) {
-      weatherString += ",p18-";
-      weatherString += String(pin18Clicks);
-    }
-    if (pin19Clicks) {
-      weatherString += ",p19-";
-      weatherString += String(pin19Clicks);
-    }
-*/ // jjj 22a 
-
+    rebootMarkerPending = false;
   }
 
   weatherString.replace(" ", "");

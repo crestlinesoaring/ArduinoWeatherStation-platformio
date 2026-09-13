@@ -20,3 +20,16 @@ void disableEthernet(bool quiet = false);
 void enableWifi(bool quiet = false);
 void disableWifi(bool quiet = false);
 void waitForWifi();
+
+#ifdef NET_CONNECTIVITY_CHECKS
+#ifndef NET_LINK_WAIT_MS
+#define NET_LINK_WAIT_MS 3000
+#endif
+#ifndef NET_GATEWAY_PING_MS
+#define NET_GATEWAY_PING_MS 2000
+#endif
+// Pre-upload checks (wxNetCheck.ino): link wait + ICMP gateway ping.
+bool waitForEthernetLink(uint16_t timeoutMs = NET_LINK_WAIT_MS);
+bool pingIp(const IPAddress& addr, uint16_t timeoutMs = NET_GATEWAY_PING_MS);
+bool pingGateway(uint16_t timeoutMs = NET_GATEWAY_PING_MS);
+#endif
