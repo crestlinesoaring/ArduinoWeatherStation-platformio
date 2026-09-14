@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import time
@@ -36,6 +37,17 @@ def _cpp_define(name: str):
     return None
 
 
+def _int_define(value, name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} is not numeric: {value!r}")
+    if isinstance(value, int):
+        return value
+    match = re.search(r"-?\d+", str(value))
+    if not match:
+        raise ValueError(f"{name} is not numeric: {value!r}")
+    return int(match.group())
+
+
 def _hw_version_num() -> int:
     value = _cpp_define("HW_VERSION")
     if value is None:
@@ -43,9 +55,10 @@ def _hw_version_num() -> int:
             f"HW_VERSION is not defined for env '{env['PIOENV']}'. "
             "Add e.g. -D HW_VERSION='\"7\"' to build_flags in platformio.ini."
         )
-    if isinstance(value, str):
-        return int(value.strip().strip('"').strip("'"))
-    return int(value)
+    try:
+        return _int_define(value, "HW_VERSION")
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def _require_define(name: str) -> int:
@@ -55,22 +68,58 @@ def _require_define(name: str) -> int:
             f"{name} is not defined for env '{env['PIOENV']}'. "
             f"Add e.g. -D {name}=227 to build_flags in platformio.ini."
         )
-    return int(value)
+    try:
+        return _int_define(value, name)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
-def _upload_port() -> str:
-    port = env.subst("$UPLOAD_PORT")
+def _detect_serial_port() -> str | None:
+    """Return the first likely Mega 2560 serial port, or any serial port."""
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return None
+
+    mega_pids = {0x0042, 0x0010, 0x0036}
+    arduino_vids = {0x2341, 0x2A03}
+
+    for port in list_ports.comports():
+        if port.vid in arduino_vids and port.pid in mega_pids:
+            return port.device
+
+    ports = list(list_ports.comports())
+    if len(ports) == 1:
+        return ports[0].device
+    return None
+
+
+def _upload_port(action_env) -> str:
+    if "upload-port" in ARGUMENTS:
+        return str(ARGUMENTS["upload-port"])
+
+    port = action_env.subst("$UPLOAD_PORT")
     if port and port != "$UPLOAD_PORT":
         return port
 
-    option_port = env.GetProjectOption("upload_port", None)
+    option_port = action_env.GetProjectOption("upload_port", None)
     if option_port:
         return option_port
 
+    detected = _detect_serial_port()
+    if detected:
+        print(f"[eeprom-net] auto-detected upload port: {detected}")
+        return detected
+
     raise RuntimeError(
-        "Upload port not set. Use upload_port in platformio.ini or "
-        "pio run -e <env> -t eeprom-net --upload-port /dev/cu.usbmodemXXXX"
+        "Upload port not set. Add upload_port to platformio.ini or pass "
+        "--upload-port, e.g. "
+        "pio run -e tavis -t eeprom-net --upload-port COM3"
     )
+
+
+def _pio_cmd() -> list[str]:
+    return [sys.executable, "-m", "platformio"]
 
 
 def _writer_env_name(base_env: str) -> str:
@@ -103,7 +152,7 @@ def patch_athena_eeprom_network(target, source, env):
         tftp_port=int(tftp_port) if tftp_port is not None else 46969,
     )
 
-    port = _upload_port()
+    port = _upload_port(env)
 
     print(f"[eeprom-net] env={env_name} writer={writer_env} port={port}")
     print(f"[eeprom-net] target {settings.summary()}")
@@ -112,8 +161,7 @@ def patch_athena_eeprom_network(target, source, env):
     log_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
-    upload_cmd = [
-        "pio",
+    upload_cmd = _pio_cmd() + [
         "run",
         "-e",
         writer_env,
@@ -153,9 +201,6 @@ def patch_athena_eeprom_network(target, source, env):
     print(f"[eeprom-net] verified OK; log saved to {verify_path}")
     print("[eeprom-net] re-flash the main firmware: pio run -e", env_name, "-t upload")
 
-
-if "upload-port" in ARGUMENTS:
-    env.Replace(UPLOAD_PORT=ARGUMENTS["upload-port"])
 
 env.AddCustomTarget(
     name="eeprom-net",
