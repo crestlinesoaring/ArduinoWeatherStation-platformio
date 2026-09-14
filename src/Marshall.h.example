@@ -1,0 +1,70 @@
+// This is Marshall.h for Marshall WX, set for Brain+GB number7, IP&MAC ending in 227,
+// Please set up as needed and copy to Marshall.h before compiling
+
+
+// physical location of the stations (overridable via -D WX_OWNER in platformio.ini)
+// "M" is at Marshall, "D" is Djamschid, "J" is with Jan-Lukas, "T" is with Tavis
+#ifndef WX_OWNER
+#define WX_OWNER "M"
+#endif
+const String wxOwner = WX_OWNER;
+
+// overridable via -D HW_VERSION in platformio.ini (5 ist an Mom. 7 ist bei Tavis. 6 ist bei W15)
+#ifndef HW_VERSION
+#define HW_VERSION "5"
+#endif
+const String hardwareVersion = HW_VERSION;
+
+// Battery type: 'F' = LiFePo, 'A' = absorbant glass mat (AGM). Determines critical battery voltage.
+// Select via -D BATTERY_LIFEPO or -D BATTERY_AGM in platformio.ini. Defaults to AGM.
+#ifdef BATTERY_LIFEPO
+#define BATTERY_TYPE 'F'
+#else
+#define BATTERY_TYPE 'A'
+#endif
+
+// stations' data destination/subfolders, that's where the stations send their data
+// Overridable via -D WX_BETA_TEXT in platformio.ini.
+#ifndef WX_BETA_TEXT
+#define WX_BETA_TEXT "*****************"
+#endif
+const String wxBetaText = WX_BETA_TEXT;
+
+// Sensitive Secret info Here.
+// CSS web site / server and the path the weather data is PUT to (the upload path)
+const String wxSiteName = "****************";
+const String wxUploadPath = "***************";
+
+
+// stations Gateway (192.168.222.254) and subnet (overridable via -D IP_GW / -D IP_Q3 in platformio.ini)
+// Marshall gateway is 254, other stations usually 1. Marshall subnet (3rd octet) is 222, Tavis' is 2
+#ifndef IP_GW
+#define IP_GW 254
+#endif
+const byte IPgw = IP_GW;                                    // Marshall gateway is 254
+
+#ifndef IP_Q3
+#define IP_Q3 222
+#endif
+const byte IPq3 = IP_Q3;                                    // Marshall subnet (3rd octet) is 222
+
+// stations IP addresses 192.168.222.22x (overridable via -D IP_WX in platformio.ini)
+// .222 ultimate production setting for MWX, .225 Brain 5 (with Dj), .226 Brain 6 (with Dj), .227 Brain 7 (with Tavis)
+#ifndef IP_WX
+#define IP_WX 222
+#endif
+const byte IPWX = IP_WX;                                    // 192.168.222.227 is for Brain number 7 (with Tavis)
+
+// stations MAC addresses
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x22 };    // MAC ending in 222 is the ultimate production setting for MWX
+//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x23 };    // MAC ending in 223 is for Brain number 3 (with Lukas)
+//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x24 };    // MAC ending in 224 is for Brain number 4 (with Dj)
+//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x25 };    // MAC ending in 225 is for Brain number 5 (with Dj)
+//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x26 };    // MAC ending in 226 is for Brain number 6 (with Dj)
+//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x27 };    // MAC ending in 227 is for Brain number 7 (with Tavis)
+
+// IPAddress serverIP(173, 254, 91, 226);                    // tav not used
+
+IPAddress timeServer(40, 119, 6, 228);                    // jjj Must be updated. Local NTP server provided by Ken
+
+unsigned int localPort = 23537;                           // jjj instead of 8888, local port to listen for UDP packets
