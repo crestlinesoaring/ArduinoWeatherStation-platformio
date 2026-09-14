@@ -409,7 +409,6 @@ unsigned long elapsedMillis = 0;
 const int ETH_TIMEOUT = 6000;
 byte ethTimeouts = 0;
 byte ethConnFails = 0;
-byte uploadRetries = 0;  // Retries needed for last successful PUT (0 = first attempt or not set).
 int ethLastFailureCode = 0;
 uint8_t ethSockStatus[MAX_SOCK_NUM];
 int timeZone; // Set during setup() routine.
@@ -1539,29 +1538,10 @@ byte uploadWeather(String WeatherString)
 
   uploadStatus = 100; //100 = stopped client, but haven't tried connecting.
 
-  strPut = makeUploadWeatherPut(WeatherString2);
-
-  //Serial.print(F(" before strPut, after strPut: "));
-  //Serial.println(freeRam());
-
-//  for (int i = 0; i < 200; i++) {
-//    charPut[i] = 'x';
-//  }
-  int strPutLength = strPut.length();
-  if (strPutLength >= uploadBufSize) {
-    Serial.print(F("uploadWeather: PUT truncated from "));
-    Serial.print(strPutLength);
-    Serial.print(F(" to "));
-    Serial.println(uploadBufSize - 1);
-    strPutLength = uploadBufSize - 1;
-  }
-  strPut.toCharArray(charPut, strPutLength + 1);
-
-  printUploadPutLine(charPut, strPutLength);
-
   int clientConnectStatus = 0;
   int writeDetail = 0;
   uploadStatus = 200;
+  int strPutLength = 0;
 
   for (byte attempt = 0; attempt <= uploadRetryNum; attempt++) {
     if (attempt > 0) {
@@ -1576,6 +1556,23 @@ byte uploadWeather(String WeatherString)
       }
       delayWithWdt(500);
     }
+
+    String putWeather = WeatherString2;
+    if (attempt > 0) {
+      putWeather += F(",UploadRetries=");
+      putWeather += String(attempt);
+    }
+    strPut = makeUploadWeatherPut(putWeather);
+    strPutLength = strPut.length();
+    if (strPutLength >= uploadBufSize) {
+      Serial.print(F("uploadWeather: PUT truncated from "));
+      Serial.print(strPutLength);
+      Serial.print(F(" to "));
+      Serial.println(uploadBufSize - 1);
+      strPutLength = uploadBufSize - 1;
+    }
+    strPut.toCharArray(charPut, strPutLength + 1);
+    printUploadPutLine(charPut, strPutLength);
 
     client.setTimeout(600); //timeout in ms
     wdt_reset();
@@ -1618,11 +1615,6 @@ byte uploadWeather(String WeatherString)
     uploadStatus = 0;
     ethConnFails = 0;
     ethTimeouts = 0;
-    if (attempt > 0) {
-      uploadRetries = attempt;
-    } else {
-      uploadRetries = 0;
-    }
     break;
   }
 
@@ -1854,10 +1846,6 @@ String getWeatherString() {
   if (ethConnFails) {
     weatherString += String(F(",EthConnFails="));
     weatherString += String(ethConnFails);
-  }
-  if (uploadRetries) {
-    weatherString += String(F(",UploadRetries="));
-    weatherString += String(uploadRetries);
   }
   if (ethTimeouts) {
     weatherString += String(F(",Timeouts="));
