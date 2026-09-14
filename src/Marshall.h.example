@@ -14,6 +14,7 @@ const String wxOwner = WX_OWNER;
 #define HW_VERSION "5"
 #endif
 const String hardwareVersion = HW_VERSION;
+// hardwareVersion is also burned once to internal EEPROM byte 75 on first boot (when unset).
 
 // Battery type: 'F' = LiFePo, 'A' = absorbant glass mat (AGM). Determines critical battery voltage.
 // Select via -D BATTERY_LIFEPO or -D BATTERY_AGM in platformio.ini. Defaults to AGM.
@@ -55,13 +56,8 @@ const byte IPq3 = IP_Q3;                                    // Marshall subnet (
 #endif
 const byte IPWX = IP_WX;                                    // 192.168.222.227 is for Brain number 7 (with Tavis)
 
-// stations MAC addresses
-byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x22 };    // MAC ending in 222 is the ultimate production setting for MWX
-//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x23 };    // MAC ending in 223 is for Brain number 3 (with Lukas)
-//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x24 };    // MAC ending in 224 is for Brain number 4 (with Dj)
-//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x25 };    // MAC ending in 225 is for Brain number 5 (with Dj)
-//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x26 };    // MAC ending in 226 is for Brain number 6 (with Dj)
-//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, 0x27 };    // MAC ending in 227 is for Brain number 7 (with Tavis)
+// stations MAC addresses (last octet tracks IP_WX; same convention as Athena eeprom-net writer)
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0x02, IP_WX };
 
 // IPAddress serverIP(173, 254, 91, 226);                    // tav not used
 

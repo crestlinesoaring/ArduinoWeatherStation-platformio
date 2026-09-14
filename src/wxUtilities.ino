@@ -212,6 +212,13 @@ void disableCamSouth() {
   EEPROM.put(eeCamStatus, camStatus);
 }
 
+// AVR EEPROM can only clear bits; write 0 first to allow any new value without chip erase.
+void writeHardwareId(byte id) {
+  EEPROM.update(eeHardwareId, 0);
+  EEPROM.update(eeHardwareId, id);
+  hardwareId = id;
+}
+
 // Called from Setup() to load memory values from EEPROM.
 // Also looks for 255 values, which suggest a new Arduino or a newly added EEPROM variable that needs initialization
 void initializeEEPROM() {
@@ -244,6 +251,26 @@ void initializeEEPROM() {
   if (EEPROM.read(eeUploadRetryNum) == 255) {
     Serial.println(F("EEPROM eeUploadRetryNum was 255, is this a new Arduino? Setting to 1."));
     EEPROM.update(eeUploadRetryNum, uploadRetryNum);
+  }
+
+  hardwareId = EEPROM.read(eeHardwareId);
+  const byte buildHwId = (byte)hardwareVersion.toInt();
+  if (hardwareId == 255) {
+    Serial.print(F("EEPROM eeHardwareId unset, writing HW_VERSION="));
+    Serial.println(buildHwId);
+    writeHardwareId(buildHwId);
+  } else if (hardwareId != buildHwId) {
+    Serial.print(F("WARNING: EEPROM hardwareId="));
+    Serial.print(hardwareId);
+    Serial.print(F(" differs from build HW_VERSION="));
+    Serial.print(buildHwId);
+    Serial.println(F("; using EEPROM value for uploads"));
+  }
+
+  if (hardwareId == 255) {
+    hwVersionForUpload = hardwareVersion;
+  } else {
+    hwVersionForUpload = String(hardwareId);
   }
 
   //Check whether the Ubiquiti should be left on all day or cycled off and only on to upload once every 5 minutes

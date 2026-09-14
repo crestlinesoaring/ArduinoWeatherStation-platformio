@@ -502,6 +502,105 @@ void resetEthernet(){ // Resets the ethernet shield. Delays incorporated! Takes 
   Serial.println("Done.");
 }
 
+// Athena bootloader network block (internal EEPROM bytes 0-69).
+static uint8_t athenaEepromByte(uint16_t addr) {
+  return eeprom_read_byte((const uint8_t*)(uintptr_t)addr);
+}
+
+static void printAthenaIpv4(uint16_t start) {
+  Serial.print(athenaEepromByte(start));
+  Serial.print(F("."));
+  Serial.print(athenaEepromByte(start + 1));
+  Serial.print(F("."));
+  Serial.print(athenaEepromByte(start + 2));
+  Serial.print(F("."));
+  Serial.print(athenaEepromByte(start + 3));
+}
+
+static void printAthenaMac(uint16_t start) {
+  for (uint8_t i = 0; i < 6; i++) {
+    if (i) {
+      Serial.print(F(":"));
+    }
+    uint8_t octet = athenaEepromByte(start + i);
+    if (octet < 16) {
+      Serial.print(F("0"));
+    }
+    Serial.print(octet, HEX);
+  }
+}
+
+static bool athenaIpv4Matches(uint16_t start, IPAddress addr) {
+  for (uint8_t i = 0; i < 4; i++) {
+    if (athenaEepromByte(start + i) != addr[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool athenaMacMatches(uint16_t start, const byte* expected) {
+  for (uint8_t i = 0; i < 6; i++) {
+    if (athenaEepromByte(start + i) != expected[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void printAthenaNetEeprom() {
+  const bool netSigSet =
+      athenaEepromByte(3) == 0x55 && athenaEepromByte(4) == 0xAA;
+  const bool portSigSet = athenaEepromByte(23) == 0xBB;
+  const uint16_t tftpPort =
+      athenaEepromByte(24) | (static_cast<uint16_t>(athenaEepromByte(25)) << 8);
+
+  wxLogSection(F("ATHENA EEPROM"));
+  Serial.print(F("  imgStat=0x"));
+  Serial.println(athenaEepromByte(2), HEX);
+  Serial.print(F("  netSig="));
+  Serial.println(netSigSet ? F("set") : F("unset"));
+  Serial.print(F("  gw="));
+  printAthenaIpv4(5);
+  Serial.print(athenaIpv4Matches(5, gateway) ? F(" (matches firmware)") : F(" (MISMATCH firmware)"));
+  Serial.println();
+  Serial.print(F("  sn="));
+  printAthenaIpv4(9);
+  Serial.print(athenaIpv4Matches(9, subnet) ? F(" (matches firmware)") : F(" (MISMATCH firmware)"));
+  Serial.println();
+  Serial.print(F("  mac="));
+  printAthenaMac(13);
+  Serial.print(athenaMacMatches(13, mac) ? F(" (matches firmware)") : F(" (MISMATCH firmware)"));
+  Serial.println();
+  Serial.print(F("  ip="));
+  printAthenaIpv4(19);
+  Serial.print(athenaIpv4Matches(19, ip) ? F(" (matches firmware)") : F(" (MISMATCH firmware)"));
+  Serial.println();
+  Serial.print(F("  portSig="));
+  Serial.print(portSigSet ? F("set") : F("unset"));
+  Serial.print(F("  tftpPort="));
+  Serial.println(tftpPort);
+  Serial.print(F("  ethCsPin="));
+  Serial.print(athenaEepromByte(68));
+  Serial.print(F("  ethResetPin="));
+  Serial.println(athenaEepromByte(69));
+
+  Serial.print(F("  raw[5..25]="));
+  for (uint8_t addr = 5; addr <= 25; addr++) {
+    if (addr != 5) {
+      Serial.print(F(" "));
+    }
+    Serial.print(addr);
+    Serial.print(F("="));
+    uint8_t value = athenaEepromByte(addr);
+    if (value < 16) {
+      Serial.print(F("0"));
+    }
+    Serial.print(value, HEX);
+  }
+  Serial.println();
+}
+
 // Turns off power for network components to save power
 void disableEthernet(bool quiet) {
   if (!quiet) {

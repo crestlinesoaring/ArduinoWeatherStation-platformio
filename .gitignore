@@ -11,3 +11,6 @@ src/version.h
 .vscode/extensions.json
 .vscode/launch.json
 .vscode/ipch/
+*.pyc
+eeprom.bin
+eeprom.map

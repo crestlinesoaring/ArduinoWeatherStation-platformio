@@ -24,6 +24,7 @@
 #include <avr/wdt.h>   // WatchDog Timer. If I hit an endless loop, reset.
 #include <avr/sleep.h> // to put Arduino to sleep
 #include <avr/power.h> // to put ADC etc to sleep
+#include <avr/eeprom.h>
 #include <EEPROM.h>    // write to built-in Arduino EEPROM
 #include <Wire.h>      // I2C library
 #include <Math.h>      // Need cos() for calculating sunrise & sunset
@@ -116,7 +117,7 @@ BME280 bme280b;                                 // Second bme280 sensor: B == ou
 #define NETEEPROM_END (NETEEPROM_START + 70)
 #define NETEEPROM_OFFSET NETEEPROM_END
 end of Athena EEPROM partitioning*/
-// const int eeShutDown              = 75;  // Not used anymore  
+const int eeHardwareId            = 75;  // One-time board ID (255 = unset); set from HW_VERSION on first boot
 const int eeWatchdog              = 76;  // Watchdog flag
 const int eeWatchdogTime          = 77;  // 77 to 80 = four bytes, timestamps when WD happened
 const int eeKeepUbiOn             = 81;  // Ubiquiti stay-on flag
@@ -131,6 +132,9 @@ const int eeMinutesAfterSunset    = 101; // Char, from -120 minutes to +120 minu
 const int eeVoltsLowestSeen       = 102; // Byte, 0 to 254
 const int eeVoltsLowestDay        = 103; // Byte, day of month
 const int eeUploadRetryNum        = 104; // Byte, extra PUT attempts after failure (0-5)
+
+byte hardwareId = 255;            // Loaded from eeHardwareId; 255 = unset
+String hwVersionForUpload;        // EEPROM hardwareId when set, else build HW_VERSION
 
 unsigned int eeUIntTemp = 0;      // Not a memory location, just an int so we can easily write  ints to eeprom.
 byte eeByteTemp = 0;              // Not a memory location, just a byte so we can easily write bytes to eeprom.
@@ -588,12 +592,23 @@ void setup()
   if (uploadRetryNum > 0) {
     Serial.print(F("  uploadRetryNum=")); Serial.println(uploadRetryNum);
   }
+
+  printAthenaNetEeprom();
+
   //Enable the WatchDog, 8 second timeout.
   //wdt_enable(WDTO_8S);
   enableWatchdog();
 
   // Load initial values from EEPROM, and also set sane values for eeprom on a new Arduino. EEPROM starts out all 1's (255).
   initializeEEPROM();
+  Serial.print(F("  hardwareId="));
+  if (hardwareId == 255) {
+    Serial.println(F("(unset)"));
+  } else {
+    Serial.println(hardwareId);
+  }
+  Serial.print(F("  hwVersionForUpload="));
+  Serial.println(hwVersionForUpload);
 
   pinMode(STAT1, OUTPUT); //Status LED Blue
 
@@ -1716,7 +1731,7 @@ String getWeatherString() {
   // 12: Hardware version string
   weatherString += String(charComma);
   weatherString += String(BATTERY_TYPE);
-  weatherString += String(hardwareVersion);
+  weatherString += hwVersionForUpload;
   
   // 13 (was 12b): temperature, C, inside BB from BME280b, instant
   weatherString += String(charComma);
