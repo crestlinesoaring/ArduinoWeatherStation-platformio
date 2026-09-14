@@ -58,7 +58,7 @@ const int EthStartupDelay = 5000; // Milliseconds to wait for Ethernet Shield to
 int minutesBeforeSunrise = 70;              // Minutes before sunrise to wake and start sending data. Should consider additional time because reboot happens every hour only -> might miss the sunrise.
 int minutesAfterSunset = 30;                // Minutes after sunset to stay awake before sleep().
 const unsigned int waitTimeIncomingClient = 8; // This variable sets the time the Telnet loop waits for input. Minimum is 1. Default 8. Maximum is 3600.
-const byte uploadRetryNum = 1; // Extra PUT attempts after a connect/write failure (0 = one try only).
+byte uploadRetryNum = 1; // Extra PUT attempts after a connect/write failure (0 = one try only).
 float battery_ma_offset = 30.0; // INA219 current measurements sometimes show an offset that needs correction. Battery_ma_offset [mA] will be added to the measured signal.
 
 // Critically low voltage for battery. Depends on battery type (defined above). AGM: 13V~max 11.8V~30%, Lifepo4: 14.9~max 13.00V~30%.
@@ -130,6 +130,7 @@ const int eeMinutesBeforeSunrise  = 100; // Char, from -120 minutes to +120 minu
 const int eeMinutesAfterSunset    = 101; // Char, from -120 minutes to +120 minutes
 const int eeVoltsLowestSeen       = 102; // Byte, 0 to 254
 const int eeVoltsLowestDay        = 103; // Byte, day of month
+const int eeUploadRetryNum        = 104; // Byte, extra PUT attempts after failure (0-5)
 
 unsigned int eeUIntTemp = 0;      // Not a memory location, just an int so we can easily write  ints to eeprom.
 byte eeByteTemp = 0;              // Not a memory location, just a byte so we can easily write bytes to eeprom.
@@ -408,6 +409,7 @@ unsigned long elapsedMillis = 0;
 const int ETH_TIMEOUT = 6000;
 byte ethTimeouts = 0;
 byte ethConnFails = 0;
+byte uploadRetries = 0;  // Retries needed for last successful PUT (0 = first attempt or not set).
 int ethLastFailureCode = 0;
 uint8_t ethSockStatus[MAX_SOCK_NUM];
 int timeZone; // Set during setup() routine.
@@ -1616,6 +1618,11 @@ byte uploadWeather(String WeatherString)
     uploadStatus = 0;
     ethConnFails = 0;
     ethTimeouts = 0;
+    if (attempt > 0) {
+      uploadRetries = attempt;
+    } else {
+      uploadRetries = 0;
+    }
     break;
   }
 
@@ -1820,22 +1827,6 @@ String getWeatherString() {
   weatherString += String(charComma);
   weatherString += String(battDrainmA / 60.0, 1);
 
-  // 22-24: Boot, Sleep, and Watchdog counters
-  if (justRestarted) {
-    //weatherString += String(charComma);  //<-- moved this up a few lines to the battDrainmA print
-    // Boot counter suspended because it was writing to EEPROM too often.
-    //EEPROM.get(eeBootCounter, eeUIntTemp);
-    //weatherString += String(eeUIntTemp);
-
-    weatherString += String(charComma);
-    EEPROM.get(eeVoltsLowestSeen, eeByteTemp);
-    weatherString += String((float)eeByteTemp / 10.0);
-  
-    weatherString += String(charComma);
-    EEPROM.get(eeWatchdogCounter, eeUIntTemp);
-    weatherString += String(eeUIntTemp);
-  }
-
   // 22+: Assorted info and error values
 
   // add socket status as 8 hex chars
@@ -1863,6 +1854,10 @@ String getWeatherString() {
   if (ethConnFails) {
     weatherString += String(F(",EthConnFails="));
     weatherString += String(ethConnFails);
+  }
+  if (uploadRetries) {
+    weatherString += String(F(",UploadRetries="));
+    weatherString += String(uploadRetries);
   }
   if (ethTimeouts) {
     weatherString += String(F(",Timeouts="));

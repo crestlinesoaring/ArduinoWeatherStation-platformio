@@ -25,7 +25,6 @@ bool checkEthIncomingData() {
     if (incomingClient) {
       wxLogTag(F("NET"), F("telnet client connected"));
       incomingClient.println(F("Hi there, it's me, the Marshall weather station! Send '?' for help."));
-      // Probably just waiting here is enough to cause a WatchDog reset, which is all we really need.
       while (incomingClient.connected()) {
         //Serial.print(F("Entering While incomingClient.connected() at ms: "));
         //Serial.println(millis());
@@ -293,6 +292,28 @@ bool checkEthIncomingData() {
               incomingClient.print(minutesAfterSunset);
               incomingClient.println(F(" minutes after sunset."));
               break;
+
+            case 'Y': // add one extra upload retrY
+              incomingClient.print(F("Y detected, adding one upload retry... "));
+              if (uploadRetryNum < 5) { uploadRetryNum++; }
+              EEPROM.update(eeUploadRetryNum, uploadRetryNum);
+              incomingClient.print(F(" - DONE, "));
+              incomingClient.print(uploadRetryNum);
+              incomingClient.print(F(" extra retries ("));
+              incomingClient.print(uploadRetryNum + 1);
+              incomingClient.println(F(" total PUT attempts)."));
+              break;
+
+            case 'y': // subtract one extra upload retrY
+              incomingClient.print(F("y detected, subtracting one upload retry... "));
+              if (uploadRetryNum > 0) { uploadRetryNum--; }
+              EEPROM.update(eeUploadRetryNum, uploadRetryNum);
+              incomingClient.print(F(" - DONE, "));
+              incomingClient.print(uploadRetryNum);
+              incomingClient.print(F(" extra retries ("));
+              incomingClient.print(uploadRetryNum + 1);
+              incomingClient.println(F(" total PUT attempts)."));
+              break;
               
             case '?':   // HELP
               // print help
@@ -316,9 +337,13 @@ bool checkEthIncomingData() {
               incomingClient.println(F("w: Subtract 15 minutes from morning wake time, wake up later."));
               incomingClient.println(F("Z: Add 15 minutes to night go-to-sleep (Zzzz) time, stay up later."));
               incomingClient.println(F("z: Subtract 15 minutes from night go-to-sleep (Zzzz) time, go to sleep earlier."));
+              incomingClient.println(F("Y: Add one extra upload retry after PUT failure."));
+              incomingClient.println(F("y: Subtract one extra upload retry after PUT failure."));
               incomingClient.println("");
               incomingClient.print(F("  Minutes before Sunrise: ")); incomingClient.println(minutesBeforeSunrise);
               incomingClient.print(F("  Minutes after Sunset:   ")); incomingClient.println(minutesAfterSunset);
+              incomingClient.print(F("  Upload retries:         ")); incomingClient.print(uploadRetryNum);
+              incomingClient.print(F(" extra (")); incomingClient.print(uploadRetryNum + 1); incomingClient.println(F(" total PUT attempts)"));
               incomingClient.print(F("  camStatus EEPROM value: ")); incomingClient.println(EEPROM.read(eeCamStatus));
               incomingClient.print(F("  Bad Weather bit:        ")); incomingClient.println(camStatus.badWeather);
               incomingClient.print(F("  CamSouth desired on:    ")); incomingClient.println(camStatus.SouthDesireOn);

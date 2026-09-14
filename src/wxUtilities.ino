@@ -241,6 +241,11 @@ void initializeEEPROM() {
     EEPROM.put(eeMinutesAfterSunset, char(minutesAfterSunset));
   }
 
+  if (EEPROM.read(eeUploadRetryNum) == 255) {
+    Serial.println(F("EEPROM eeUploadRetryNum was 255, is this a new Arduino? Setting to 1."));
+    EEPROM.update(eeUploadRetryNum, uploadRetryNum);
+  }
+
   //Check whether the Ubiquiti should be left on all day or cycled off and only on to upload once every 5 minutes
   if (EEPROM.read(eeKeepUbiOn)) {
     keepUbiquitiOn = true;
@@ -264,6 +269,7 @@ void initializeEEPROM() {
   minutesBeforeSunrise = eeCharTemp;
   EEPROM.get(eeMinutesAfterSunset, eeCharTemp);
   minutesAfterSunset = eeCharTemp;
+  uploadRetryNum = EEPROM.read(eeUploadRetryNum);
 
 #ifdef BENCH_MODE
   Serial.println(F("BENCH_MODE — staying awake, clearing keep-Ubiquiti EEPROM flag."));
