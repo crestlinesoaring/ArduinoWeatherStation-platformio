@@ -1478,17 +1478,8 @@ static int parseHttpStatusCode(const char* response, size_t len) {
   return -1;
 }
 
-static void printUploadResult(byte status, int detail = 0) {
-  if (status == 0) {
-    Serial.print(F("[UP] SUCCESS"));
-    if (detail > 0) {
-      Serial.print(F(" HTTP "));
-      Serial.print(detail);
-    }
-    Serial.println();
-    return;
-  }
-  Serial.print(F("[UP] FAILED ("));
+static void printUploadFailureBody(byte status, int detail) {
+  Serial.print(F("FAILED ("));
   Serial.print(status);
   Serial.print(F("): "));
   switch (status) {
@@ -1509,6 +1500,27 @@ static void printUploadResult(byte status, int detail = 0) {
     case 205: Serial.println(F("unrecognized HTTP response")); break;
     default: Serial.println(F("unknown")); break;
   }
+}
+
+static void printUploadAttemptFailure(byte attempt, byte status, int detail = 0) {
+  Serial.print(F("[UP] attempt "));
+  Serial.print(attempt);
+  Serial.print(' ');
+  printUploadFailureBody(status, detail);
+}
+
+static void printUploadResult(byte status, int detail = 0) {
+  if (status == 0) {
+    Serial.print(F("[UP] SUCCESS"));
+    if (detail > 0) {
+      Serial.print(F(" HTTP "));
+      Serial.print(detail);
+    }
+    Serial.println();
+    return;
+  }
+  Serial.print(F("[UP] "));
+  printUploadFailureBody(status, detail);
 }
 
 byte uploadWeather(String WeatherString)
@@ -1624,6 +1636,7 @@ byte uploadWeather(String WeatherString)
       clientConnectStatus = 0;
       uploadStatus = 201;
       client.stop();
+      printUploadAttemptFailure(attempt, uploadStatus);
       continue;
     }
     clientConnectStatus = client.connect(getCssServerIp(), 80);
@@ -1632,6 +1645,7 @@ byte uploadWeather(String WeatherString)
       ethLastFailureCode = clientConnectStatus;
       client.stop();
       uploadStatus = 200;
+      printUploadAttemptFailure(attempt, uploadStatus);
       continue;
     }
 
@@ -1642,6 +1656,7 @@ byte uploadWeather(String WeatherString)
       client.stop();
       writeDetail = (int)written;
       uploadStatus = 202;
+      printUploadAttemptFailure(attempt, uploadStatus, writeDetail);
       continue;
     }
 
@@ -1685,7 +1700,8 @@ byte uploadWeather(String WeatherString)
     if (responseLen == 0) {
       client.stop();
       uploadStatus = 203;
-      continue;
+      printUploadAttemptFailure(attempt, uploadStatus);
+      break; // do not retry: PUT may have reached the server without a visible response
     }
 
     httpStatusCode = parseHttpStatusCode(responseBuf, responseLen);
@@ -1694,12 +1710,14 @@ byte uploadWeather(String WeatherString)
       uploadStatus = 205;
       Serial.print(F("[UP] response "));
       printUploadPutLine(responseBuf, (int)responseLen);
+      printUploadAttemptFailure(attempt, uploadStatus);
       continue;
     }
     if (httpStatusCode < 200 || httpStatusCode >= 300) {
       client.stop();
       writeDetail = httpStatusCode;
       uploadStatus = 204;
+      printUploadAttemptFailure(attempt, uploadStatus, writeDetail);
       continue;
     }
 
@@ -1721,10 +1739,6 @@ byte uploadWeather(String WeatherString)
   wdt_reset();
   if (uploadStatus == 0) {
     printUploadResult(uploadStatus, httpStatusCode);
-  } else if (uploadStatus == 202 || uploadStatus == 204) {
-    printUploadResult(uploadStatus, writeDetail);
-  } else {
-    printUploadResult(uploadStatus);
   }
   return uploadStatus;
 }
