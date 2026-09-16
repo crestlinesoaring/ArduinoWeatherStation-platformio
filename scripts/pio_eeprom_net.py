@@ -136,13 +136,11 @@ def patch_athena_eeprom_network(target, source, env):
     ip_wx = _require_define("IP_WX")
 
     tftp_port = _cpp_define("ATHENA_TFTP_PORT")
-    mac5 = _cpp_define("ATHENA_MAC_5")
-    mac6 = _cpp_define("ATHENA_MAC_6")
-    mac = None
-    if mac5 is not None or mac6 is not None:
-        if mac5 is None or mac6 is None:
-            raise RuntimeError("Define both ATHENA_MAC_5 and ATHENA_MAC_6, or neither.")
-        mac = (0xDE, 0xAD, 0xBE, 0xEF, int(mac5), int(mac6))
+    mac5_define = _cpp_define("MAC_5")
+    mac6_define = _cpp_define("MAC_6")
+    mac5 = _int_define(mac5_define, "MAC_5") if mac5_define is not None else 0x02
+    mac6 = _int_define(mac6_define, "MAC_6") if mac6_define is not None else ip_wx
+    mac = (0xDE, 0xAD, 0xBE, 0xEF, mac5, mac6)
 
     settings = network_settings_from_env(
         ip_gw=ip_gw,
@@ -172,6 +170,9 @@ def patch_athena_eeprom_network(target, source, env):
     ]
     upload_env = os.environ.copy()
     upload_env["EEPROM_NET_HW_VERSION"] = str(_hw_version_num())
+    upload_env["EEPROM_NET_MAC_6"] = str(mac6)
+    if mac5_define is not None:
+        upload_env["EEPROM_NET_MAC_5"] = str(mac5)
     if "force-hw-id" in ARGUMENTS:
         upload_env["EEPROM_NET_FORCE_HW_ID"] = "1"
         print(
@@ -209,6 +210,7 @@ env.AddCustomTarget(
     title="EEPROM-Net",
     description=(
         "Upload Athena network writer from IP_GW/IP_Q3/IP_WX and verify via serial. "
+        "Optional MAC_6 overrides the MAC last octet (default IP_WX). "
         "Use --force-hw-id to re-burn byte 75 from HW_VERSION."
     ),
 )

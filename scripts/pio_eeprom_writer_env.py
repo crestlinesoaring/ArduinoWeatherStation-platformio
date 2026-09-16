@@ -15,3 +15,11 @@ if env["PIOENV"].endswith("-eeprom-net"):
 
     if os.environ.get("EEPROM_NET_FORCE_HW_ID"):
         env.Append(CPPDEFINES=[("EEPROM_NET_FORCE_HW_ID",)])
+
+    mac6 = os.environ.get("EEPROM_NET_MAC_6")
+    if mac6:
+        env.Append(CPPDEFINES=[("MAC_6", int(mac6))])
+
+    mac5 = os.environ.get("EEPROM_NET_MAC_5")
+    if mac5:
+        env.Append(CPPDEFINES=[("MAC_5", int(mac5))])

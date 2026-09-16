@@ -32,12 +32,12 @@
 #define ATHENA_ETH_RESET_PIN 6
 #endif
 
-#ifndef ATHENA_MAC_5
-#define ATHENA_MAC_5 0x02
+#ifndef MAC_5
+#define MAC_5 0x02
 #endif
 
-#ifndef ATHENA_MAC_6
-#define ATHENA_MAC_6 IP_WX
+#ifndef MAC_6
+#define MAC_6 IP_WX
 #endif
 
 #ifndef HW_VERSION
@@ -51,7 +51,7 @@ static const uint8_t NET_SIG_1 = 0x55;
 static const uint8_t NET_SIG_2 = 0xAA;
 static const uint8_t NET_SIG_3 = 0xBB;
 
-byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, ATHENA_MAC_5, ATHENA_MAC_6};
+byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, MAC_5, MAC_6};
 IPAddress ip(192, 168, IP_Q3, IP_WX);
 IPAddress gateway(192, 168, IP_Q3, IP_GW);
 IPAddress subnet(255, 255, 255, 0);
