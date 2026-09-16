@@ -1452,9 +1452,40 @@ static void printUploadPutLine(const char* charPut, int length) {
   Serial.println();
 }
 
+static int parseHttpStatusCode(const char* response, size_t len) {
+  for (size_t i = 0; i + 8 < len; i++) {
+    if (response[i] != 'H' || response[i + 1] != 'T' ||
+        response[i + 2] != 'T' || response[i + 3] != 'P' || response[i + 4] != '/') {
+      continue;
+    }
+    const char* p = response + i + 5;
+    while (p < response + len && *p != ' ') {
+      p++;
+    }
+    if (p >= response + len || *p != ' ') {
+      return -1;
+    }
+    p++;
+    int code = 0;
+    bool gotDigit = false;
+    while (p < response + len && *p >= '0' && *p <= '9') {
+      code = code * 10 + (*p - '0');
+      gotDigit = true;
+      p++;
+    }
+    return gotDigit ? code : -1;
+  }
+  return -1;
+}
+
 static void printUploadResult(byte status, int detail = 0) {
   if (status == 0) {
-    Serial.println(F("[UP] SUCCESS"));
+    Serial.print(F("[UP] SUCCESS"));
+    if (detail > 0) {
+      Serial.print(F(" HTTP "));
+      Serial.print(detail);
+    }
+    Serial.println();
     return;
   }
   Serial.print(F("[UP] FAILED ("));
@@ -1463,19 +1494,19 @@ static void printUploadResult(byte status, int detail = 0) {
   switch (status) {
     case 50: Serial.println(F("network not ready")); break;
     case 51: Serial.println(F("invalid weather string")); break;
-    case 200:
-      Serial.print(F("connection failed"));
-      if (detail != 0) {
-        Serial.print(F(", status "));
-        Serial.print(detail);
-      }
-      Serial.println();
-      break;
+    case 201: Serial.println(F("DNS lookup failed")); break;
+    case 200: Serial.println(F("TCP connection failed")); break;
     case 202:
-      Serial.print(F("write incomplete "));
+      Serial.print(F("PUT write incomplete ("));
       Serial.print(detail);
-      Serial.println(F(" bytes sent"));
+      Serial.println(F(" bytes sent)"));
       break;
+    case 203: Serial.println(F("no HTTP response from server")); break;
+    case 204:
+      Serial.print(F("HTTP error "));
+      Serial.println(detail);
+      break;
+    case 205: Serial.println(F("unrecognized HTTP response")); break;
     default: Serial.println(F("unknown")); break;
   }
 }
@@ -1552,6 +1583,7 @@ byte uploadWeather(String WeatherString)
 
   int clientConnectStatus = 0;
   int writeDetail = 0;
+  int httpStatusCode = 0;
   uploadStatus = 200;
   int strPutLength = 0;
 
@@ -1590,9 +1622,11 @@ byte uploadWeather(String WeatherString)
     wdt_reset();
     if (!resolveCssServerIp()) {
       clientConnectStatus = 0;
-    } else {
-      clientConnectStatus = client.connect(getCssServerIp(), 80);
+      uploadStatus = 201;
+      client.stop();
+      continue;
     }
+    clientConnectStatus = client.connect(getCssServerIp(), 80);
     wdt_reset();
     if (!clientConnectStatus) {
       ethLastFailureCode = clientConnectStatus;
@@ -1621,11 +1655,52 @@ byte uploadWeather(String WeatherString)
     }
     delayWithWdt(200);
 
-    while (client.available()) {
+    char responseBuf[160];
+    size_t responseLen = 0;
+    bool statusLineComplete = false;
+    uint32_t readStart = millis();
+    while (millis() - readStart < 2500) {
       wdt_reset();
-      ethLastMillis = millis();
-      char c = client.read();
-      if (enableEthDump2Serial) Serial.print(c);
+      while (client.available()) {
+        ethLastMillis = millis();
+        char c = client.read();
+        if (enableEthDump2Serial) Serial.print(c);
+        if (responseLen < sizeof(responseBuf) - 1) {
+          responseBuf[responseLen++] = c;
+          if (c == '\n') {
+            statusLineComplete = true;
+          }
+        }
+      }
+      if (statusLineComplete) {
+        break;
+      }
+      if (!client.connected() && !client.available()) {
+        break;
+      }
+      delay(10);
+    }
+    responseBuf[responseLen] = '\0';
+
+    if (responseLen == 0) {
+      client.stop();
+      uploadStatus = 203;
+      continue;
+    }
+
+    httpStatusCode = parseHttpStatusCode(responseBuf, responseLen);
+    if (httpStatusCode < 0) {
+      client.stop();
+      uploadStatus = 205;
+      Serial.print(F("[UP] response "));
+      printUploadPutLine(responseBuf, (int)responseLen);
+      continue;
+    }
+    if (httpStatusCode < 200 || httpStatusCode >= 300) {
+      client.stop();
+      writeDetail = httpStatusCode;
+      uploadStatus = 204;
+      continue;
     }
 
     uploadStatus = 0;
@@ -1636,12 +1711,17 @@ byte uploadWeather(String WeatherString)
 
   if (uploadStatus != 0) {
     ethConnFails++;
+    if (uploadStatus == 204) {
+      ethLastFailureCode = writeDetail;
+    } else {
+      ethLastFailureCode = uploadStatus;
+    }
   }
 
   wdt_reset();
-  if (uploadStatus == 200) {
-    printUploadResult(uploadStatus, clientConnectStatus);
-  } else if (uploadStatus == 202) {
+  if (uploadStatus == 0) {
+    printUploadResult(uploadStatus, httpStatusCode);
+  } else if (uploadStatus == 202 || uploadStatus == 204) {
     printUploadResult(uploadStatus, writeDetail);
   } else {
     printUploadResult(uploadStatus);
