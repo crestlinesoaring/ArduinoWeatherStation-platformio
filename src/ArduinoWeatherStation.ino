@@ -402,10 +402,7 @@ EthernetClient incomingClient;  // For incoming connections. Initially this is j
 EthernetServer server(23537);
 EthernetUDP Udp;
 
-// if you don't want to use DNS (and reduce your sketch size)
-// use the numeric IP instead of the name for the server:
-char CSSserver[] = "www.flymarshall.com"; // Web server to connect to. // jjj this should be on top 16. Apr 2020
-// [MarshallProprietary]
+// CSS upload host: wxSiteName in Marshall.h (DNS resolved once per reboot in wxTimeNet.ino).
 
 // Some debugging and record keeping variables
 unsigned long ethLastMillis = 0;
@@ -1591,7 +1588,11 @@ byte uploadWeather(String WeatherString)
 
     client.setTimeout(600); //timeout in ms
     wdt_reset();
-    clientConnectStatus = client.connect(CSSserver, 80);
+    if (!resolveCssServerIp()) {
+      clientConnectStatus = 0;
+    } else {
+      clientConnectStatus = client.connect(getCssServerIp(), 80);
+    }
     wdt_reset();
     if (!clientConnectStatus) {
       ethLastFailureCode = clientConnectStatus;

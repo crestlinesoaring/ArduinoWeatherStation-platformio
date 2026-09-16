@@ -3,6 +3,34 @@
  * Functions for handling time and some network related duties. Like NTP.
  * 
  */
+#include <Dns.h>
+
+static IPAddress cssServerIp(0, 0, 0, 0);
+static bool cssServerDnsValid = false;
+
+bool resolveCssServerIp() {
+  if (cssServerDnsValid) {
+    return true;
+  }
+  if (!ethEnabled) {
+    return false;
+  }
+
+  DNSClient dns;
+  dns.begin(Ethernet.dnsServerIP());
+  IPAddress resolved;
+  if (!dns.getHostByName(wxSiteName.c_str(), resolved)) {
+    return false;
+  }
+
+  cssServerIp = resolved;
+  cssServerDnsValid = true;
+  return true;
+}
+
+IPAddress getCssServerIp() {
+  return cssServerIp;
+}
 /* Check for incoming data on the Ethernet server.
  *  Typically stuff like reset requests, maybe update EEPROM values, print current data cache, etc...
  */
@@ -472,6 +500,16 @@ void enableEthernet(bool quiet) {
   if (!quiet) {
     Serial.print(F("[NET] ethernet up  IP "));
     Serial.println(Ethernet.localIP());
+  }
+  if (resolveCssServerIp()) {
+    if (!quiet) {
+      Serial.print(F("[NET] DNS "));
+      Serial.print(wxSiteName);
+      Serial.print(F(" -> "));
+      Serial.println(cssServerIp);
+    }
+  } else if (!quiet) {
+    wxLogTag(F("NET"), F("DNS lookup failed (will retry on upload)"));
   }
   W5100.setRetransmissionTime(0x07D0);            // reduce wait
   W5100.setRetransmissionCount(4);

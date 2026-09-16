@@ -15,6 +15,8 @@ void wxLogTagNum(const __FlashStringHelper* tag, const __FlashStringHelper* labe
 void wxLogTagFloat(const __FlashStringHelper* tag, const __FlashStringHelper* label, float value, uint8_t decimals = 2);
 
 // Network (wxTimeNet.ino). quiet=true skips log (early boot before RTC is set).
+bool resolveCssServerIp();
+IPAddress getCssServerIp();
 void enableEthernet(bool quiet = false);
 void disableEthernet(bool quiet = false);
 void enableWifi(bool quiet = false);
