@@ -1,6 +1,6 @@
 #pragma once
 
-//   -D WS85_SERIAL_LOG  — WS85 anemometer frame dumps on Serial (requires ANEMO_WS85)
+//   -D WS85_SERIAL_LOG  - WS85 anemometer frame dumps on Serial (requires ANEMO_WS85)
 
 #include <Arduino.h>
 

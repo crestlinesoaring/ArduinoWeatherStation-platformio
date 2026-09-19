@@ -821,7 +821,7 @@ void setup()
     if (wxDontSleep) {
       Serial.println(F("[BOOT] night (skipping sleep)"));
     } else {
-      Serial.print(F("[BOOT] night — sleeping until "));
+      Serial.print(F("[BOOT] night - sleeping until "));
       Serial.print((sunrise - minutesBeforeSunrise) / 60); Serial.print(F(":")); Serial.println((sunrise - minutesBeforeSunrise) % 60);
     }
     goToSleep();
@@ -831,7 +831,7 @@ void setup()
 
   /* Jump start the wind speed by reading the initial value from the RTC's RAM.
       This gets saved every minute. Since Windspeed is an MMA, it takes almost a minute
-      to get it up to speed. WS85 provides its own speed — RTC seed holds stale pulse values. */
+      to get it up to speed. WS85 provides its own speed - RTC seed holds stale pulse values. */
   
 #ifdef ANEMO_WS85
   windSpeedAvg = 0;
@@ -1027,7 +1027,7 @@ void loop()
         // If it's early enough in the day, and charging voltage is high enough, enable cameras.
         static bool camPowerMsgShown = false;
         if (!camPowerMsgShown) {
-          wxLogTag(F("CAM"), F("daytime power OK — cameras + continuous WiFi"));
+          wxLogTag(F("CAM"), F("daytime power OK - cameras + continuous WiFi"));
           camPowerMsgShown = true;
         }
         keepUbiquitiOn = true;
@@ -1049,7 +1049,7 @@ void loop()
         battDrainMinutes += 1;
         // If the battery's been draining too long (minutes) or too much (milliamp-minutes), cut the cameras.
         if (((battDrainMinutes >= 5) or (battDrainmA < -8000) or ((ina219b_battery_volts < 12.5) and (battDrainMinutes > 1)) ) ) {
-          wxLogTag(F("CAM"), F("off — excessive battery drain"));
+          wxLogTag(F("CAM"), F("off - excessive battery drain"));
           disableCamSouth();
           disableCamNorth();
           disableCamBrain();
@@ -1252,7 +1252,7 @@ void loop()
           wxLogRule();
           uploadPending = false;
         } // End every 5th minute: if (minute() %5 == 0)
-#else  // BENCH_MODE — upload over Ethernet every 5 minutes, no Ubiquiti wait
+#else  // BENCH_MODE - upload over Ethernet every 5 minutes, no Ubiquiti wait
         if ((minute() % 5 == 0) and (millis() > 180000)) {
           if (not ethEnabled) enableEthernet();
           if (ethEnabled) {

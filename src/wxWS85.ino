@@ -1,5 +1,5 @@
 /*
- * WS85 ultrasonic anemometer — serial wind speed & direction input.
+ * WS85 ultrasonic anemometer - serial wind speed & direction input.
  * Connect WS85 TX to Mega Serial1 RX (pin 19). Common GND required.
  */
 

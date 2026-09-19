@@ -299,7 +299,7 @@ void initializeEEPROM() {
   uploadRetryNum = EEPROM.read(eeUploadRetryNum);
 
 #ifdef BENCH_MODE
-  Serial.println(F("BENCH_MODE — staying awake, clearing keep-Ubiquiti EEPROM flag."));
+  Serial.println(F("BENCH_MODE - staying awake, clearing keep-Ubiquiti EEPROM flag."));
   keepUbiquitiOn = false;
   if (EEPROM.read(eeKeepUbiOn)) EEPROM.update(eeKeepUbiOn, false);
 #endif

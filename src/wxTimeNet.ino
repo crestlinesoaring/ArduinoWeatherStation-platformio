@@ -648,7 +648,7 @@ void disableEthernet(bool quiet) {
   
   if (hour() == 11 and minute() > 48) {
     // Leave it all on for ~10 minutes, once a day. Just-in-case.
-    if (!quiet) wxLogTag(F("NET"), F("ethernet held on (11:50–12:00)"));
+    if (!quiet) wxLogTag(F("NET"), F("ethernet held on (11:50-12:00)"));
     return;
   }
   
@@ -712,7 +712,7 @@ void disableWifi(bool quiet) {
   }
 
   if (hour() == 11 and minute() > 48) {
-    if (!quiet) wxLogTag(F("NET"), F("wifi held on (11:50–12:00)"));
+    if (!quiet) wxLogTag(F("NET"), F("wifi held on (11:50-12:00)"));
     return;
   }
 

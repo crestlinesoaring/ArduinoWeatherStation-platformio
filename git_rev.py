@@ -46,7 +46,7 @@ def write_version_h(info):
     version_id, version_date, version_datetime, commit_hash = info
     (project_root() / "src" / "version.h").write_text(
         "#pragma once\n"
-        "// *** AUTO-GENERATED FILE — DO NOT EDIT ***\n"
+        "// *** AUTO-GENERATED FILE - DO NOT EDIT ***\n"
         "// From git HEAD at build time via git_rev.py.\n"
         f'#define VERSION_ID "{version_id}"\n'
         f'#define VERSION_DATE "{version_date}"\n'
