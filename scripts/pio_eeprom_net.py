@@ -23,8 +23,6 @@ from athena_eeprom import (  # noqa: E402
     parse_writer_verify_line,
     read_writer_verify_line,
 )
-
-
 def _cpp_define(name: str):
     for item in env.get("CPPDEFINES", []):
         if isinstance(item, str):
@@ -74,50 +72,6 @@ def _require_define(name: str) -> int:
         raise RuntimeError(str(exc)) from exc
 
 
-def _detect_serial_port() -> str | None:
-    """Return the first likely Mega 2560 serial port, or any serial port."""
-    try:
-        from serial.tools import list_ports
-    except ImportError:
-        return None
-
-    mega_pids = {0x0042, 0x0010, 0x0036}
-    arduino_vids = {0x2341, 0x2A03}
-
-    for port in list_ports.comports():
-        if port.vid in arduino_vids and port.pid in mega_pids:
-            return port.device
-
-    ports = list(list_ports.comports())
-    if len(ports) == 1:
-        return ports[0].device
-    return None
-
-
-def _upload_port(action_env) -> str:
-    if "upload-port" in ARGUMENTS:
-        return str(ARGUMENTS["upload-port"])
-
-    port = action_env.subst("$UPLOAD_PORT")
-    if port and port != "$UPLOAD_PORT":
-        return port
-
-    option_port = action_env.GetProjectOption("upload_port", None)
-    if option_port:
-        return option_port
-
-    detected = _detect_serial_port()
-    if detected:
-        print(f"[eeprom-net] auto-detected upload port: {detected}")
-        return detected
-
-    raise RuntimeError(
-        "Upload port not set. Add upload_port to platformio.ini or pass "
-        "--upload-port, e.g. "
-        "pio run -e tavis -t eeprom-net --upload-port COM3"
-    )
-
-
 def _pio_cmd() -> list[str]:
     return [sys.executable, "-m", "platformio"]
 
@@ -150,7 +104,19 @@ def patch_athena_eeprom_network(target, source, env):
         tftp_port=int(tftp_port) if tftp_port is not None else 46969,
     )
 
-    port = _upload_port(env)
+    if "upload-port" in ARGUMENTS:
+        env.Replace(UPLOAD_PORT=ARGUMENTS["upload-port"])
+    elif ARGUMENTS.get("port"):
+        env.Replace(UPLOAD_PORT=ARGUMENTS["port"])
+    else:
+        env.AutodetectUploadPort()
+
+    port = env.subst("$UPLOAD_PORT")
+    if not port or port == "$UPLOAD_PORT":
+        raise RuntimeError(
+            f"upload_port not set for env '{env_name}'. "
+            "Select a port in PlatformIO or pass -p."
+        )
 
     print(f"[eeprom-net] env={env_name} writer={writer_env} port={port}")
     print(f"[eeprom-net] target {settings.summary()}")
