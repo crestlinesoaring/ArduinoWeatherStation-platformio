@@ -1,8 +1,15 @@
 #pragma once
 
-//   -D WS85_SERIAL_LOG  - WS85 anemometer frame dumps on Serial (requires ANEMO_WS85)
+//   -D WS85_SERIAL_LOG   - WS85 anemometer frame dumps on Serial (requires ANEMO_WS85)
+//   -D SERIAL_TIMESTAMPS - prefix every Serial output line with [HH:MM:SS] or [12345ms]
 
 #include <Arduino.h>
+
+#ifdef SERIAL_TIMESTAMPS
+#include "wxTimestampSerial.h"
+#undef Serial
+#define Serial WxSerial
+#endif
 
 // Structured serial helpers (wxLog.ino)
 void wxLogBlank();

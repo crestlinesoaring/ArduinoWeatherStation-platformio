@@ -49,7 +49,7 @@
 
 // OTHER DEBUGGING SETTINGS:
 // #define TELNET_AT_STARTUP          // DEBUG: Uncomment to force Arduino into Telnet client loop at beginning of loop() function. Attention: standard sensor reading loop is disabled then! Same can be achieved with PIN_TELNET_AT_STARTUP (see pin.h)
-// WS85_SERIAL_LOG is set via platformio.ini build_flags (see wxSerial.h).
+// WS85_SERIAL_LOG and SERIAL_TIMESTAMPS are set via platformio.ini build_flags (see wxSerial.h).
 
 const String wxVersion = VERSION_ID;
 const bool   enableEthDump2Serial = false;  // Set to false to suppress spitting Ethernet output to serial. Sometimes unprintable characters mess up the terminal.
