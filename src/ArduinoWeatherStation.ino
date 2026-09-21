@@ -1189,7 +1189,6 @@ void loop()
         tempWeatherString = getWeatherString();
         Serial.print(F("[WX] "));
         Serial.println(tempWeatherString);
-        saveWeatherToCache(tempWeatherString);
         ina219a_solar_MMAloops = 0;  //Reset to zero after upload (even if not successful)
 
 #ifndef BENCH_MODE
@@ -1205,7 +1204,13 @@ void loop()
           enableEthernet();
           if (ethEnabled){ //if enableEthernet() fails to establish a connection, skip everything and shut connection down until next five minutes
             msTemp = millis();
+            // Upload before caching this minute so the lagged five-minute batch does not
+            // spill the current minute into the next upload window (e.g. :50 -> :55).
+            bool wasJustRestarted = justRestarted;
             uploadCachedWeather(minute(), uploadStatus);
+            if (wasJustRestarted) {
+              justRestarted = false;
+            }
             // Done sending, hope it worked! (error handling later) Turn off Eth & Wifi until the next 5 minute boundary.
 			
 			if (uploadStatus==0){ // Means upload was successful
@@ -1215,7 +1220,6 @@ void loop()
 					EEPROM.update(eeWatchdog, 0);   //Clear the watchdog-happened bit once we have reason to believe it's been reported.
 				}
 				ethLastFailureCode = 0;
-				justRestarted = false;     //reset this HERE so it stays "true" until a successful ethernet connection has happened.
 			}
 
             // Update RTC from NTP Server data:
@@ -1257,7 +1261,11 @@ void loop()
           if (not ethEnabled) enableEthernet();
           if (ethEnabled) {
             msTemp = millis();
+            bool wasJustRestarted = justRestarted;
             uploadCachedWeather(minute(), uploadStatus);
+            if (wasJustRestarted) {
+              justRestarted = false;
+            }
 
             if (uploadStatus==0) {
               if (reportWatchdog) {
@@ -1266,7 +1274,6 @@ void loop()
                 EEPROM.update(eeWatchdog, 0);
               }
               ethLastFailureCode = 0;
-              justRestarted = false;
             }
 
             #ifndef SIMULATE_RTC
@@ -1298,7 +1305,8 @@ void loop()
           }
         }
 #endif
-        
+        saveWeatherToCache(tempWeatherString);
+
       } // End "new minute()" (clock minute, not runtime minute)
     }
 

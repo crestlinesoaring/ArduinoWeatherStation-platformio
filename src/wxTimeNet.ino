@@ -1040,11 +1040,11 @@ String makeStationDefinesSuffix() {
   String s;
   s += F(",");
   s += wxBetaText;
-  s += F(",q3=");
+  s += F(",");
   s += IPq3;
-  s += F(",ip=");
+  s += F(".");
   s += IPWX;
-  s += F(",gw=");
+  s += F(":");
   s += IPgw;
   return s;
 }
