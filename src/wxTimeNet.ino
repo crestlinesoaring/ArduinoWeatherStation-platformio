@@ -1039,7 +1039,7 @@ String time_t_to_datetime_string(time_t tt){
 String makeStationDefinesSuffix() {
   String s;
   s += F(",");
-  s += wxBetaText;
+  s += wxBetaCode;
   s += F(",");
   s += IPq3;
   s += F(".");
