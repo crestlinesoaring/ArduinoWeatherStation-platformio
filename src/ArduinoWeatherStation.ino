@@ -45,6 +45,7 @@
 #include "pins.h"      // Header file for hardware dependent variables (must precede Marshall.h for BENCH_MODE)
 #include "Marshall.h"  // Site-specific parameters that cannot currently be published
 #include "wxSerial.h"
+#include "renogy.h"
 
 
 // OTHER DEBUGGING SETTINGS:
@@ -254,10 +255,10 @@ volatile byte windClicks = 0;
  * 3: Wind speed mph, 1 min avg
  * 4: Wind speed mph, 10 min Peak (needs to change to 5 min peak)
  * 5: Wind direction, 1 min avg
- * 6: Temerature in F, outside, current
- * 7: Humidity, outside, current
- * 8: Barometric pressure in kPa (divide by 100), sampled once a minute
- * 9: Barometric pressure delta since last sample (1 minute ago)
+ * 6: Temerature in F, outside, current (unused on most stations)
+ * 7: Humidity, outside, current (unused on most stations)
+ * 8: Renogy charge controller solar panel voltage (V)
+ * 9: Renogy charge controller solar panel amps (A)
  * 10: rain for the day (not used, set to -LR- for identification)
  * 11: rain long term?  (not used, set to -LR- for identification)
  * 12: Temperature in C from RTC
@@ -267,9 +268,11 @@ volatile byte windClicks = 0;
  * 15: current 2: battery
  * 16: voltage 2: battery
  * 17: light level (accurate, but probably zero inside enclosure)
- * 18: uptime in HH:MM:SS
- * 19: Wind direction text (N, NNW, NW, WNW, W, etc)
- * 20: Status stuff: reboots, socket status, failures, etc...
+ * 19: uptime in MM:SS or H:MM
+ * 20: Camera / Ubiquiti status flags (U, S, N, B, X, O, T=...)
+ * 21: Consecutive battery drain minutes (when draining)
+ * 22: Net battery drain since boot (mAh, battDrainmA/60)
+ * 23+: failures, reboot marker, etc.
  */
 
 float windSpeedAvg = 0; //Lets try keeping avg using MATH!
@@ -676,8 +679,10 @@ void setup()
   bme280b.settings.pressOverSample = 1; //oversample rate: 1-5 equate to 1, 2, 4, 8, 16
   bme280b.settings.humidOverSample = 1; //oversample rate: 1-5 equate to 1, 2, 4, 8, 16
   Serial.print(bme280b.begin(), HEX);
-  Serial.print(", took "); Serial.print(micros() - usTemp); Serial.println("us.");
+  Serial.print(F(", took ")); Serial.print(micros() - usTemp); Serial.println(F("us."));
 
+  renogyInit();
+  Serial.println(F("  Renogy CC on Serial2 @ 9600 baud, modbus addr 255"));
 
   seconds = 0;
   lastSecond = millis();
@@ -1803,6 +1808,8 @@ String getWeatherString() {
   byte wxMinute = minute();
   wxCache_lastSaved = wxMinute;
 
+  renogyUpdate();
+
   //Must read temperature first to get calibration for humidity and pressure.
   float temperature2temp = bme280b.readTempC();
   humidityInside = bme280b.readFloatHumidity();
@@ -1856,16 +1863,14 @@ String getWeatherString() {
   //weatherString += String(bme280a.readFloatHumidity(), 0);
 
 
-  // 8: Barometric pressure, hPa, outside, instant from bme280a (280b for now, since 280a doesn't exist yet)
+  // 8: Renogy charge controller solar panel voltage (was barometric pressure)
   weatherString += String(charComma);
-  //weatherString += String(pres1temp, 2);
+  weatherString += String(renogy_solar_volts, 1);
   put_pres1(wxMinute, pres1temp);
 
-  // 9: Barometric pressure delta from previous reading
+  // 9: Renogy charge controller solar panel amps (was barometric pressure delta)
   weatherString += String(charComma);
-  //if (pressure >= oldPressure) weatherString += String("+"); //can't have spaces in the URL, but using the + makes columns line up nicer.
-  //weatherString += String((pressure - oldPressure) / 100.0, 2);
-  //weatherString += "0";
+  weatherString += String(renogy_solar_amps, 2);
 
   // 10: Location string ("M" for Marshall, "L" for Lance, "D" for DJ)
   weatherString += String(charComma);
@@ -1954,8 +1959,6 @@ String getWeatherString() {
   if (seconds < 10) weatherString += String('0');
   weatherString += String(seconds);
 
-  // 20: OLD print raw wind direction ADC reading, to see why 270 degree sometimes comes back as "invalid"
-    //weatherString += String(winddirRaw);
   // 20: print "turn on" status of Ubiquiti:U and Cameras:P=PG launch (or North), H=HG launch (or South), B=Brain Box (down). X=Bad Weather (cams don't auto-on)
   weatherString += String(charComma);
   if (keepUbiquitiOn)        { weatherString += String("U"); }
@@ -1970,17 +1973,13 @@ String getWeatherString() {
     telnetSeconds = 0;
   }
 
-  // 21: print weather direction string to make it easy to read which direction the wind is blowing.
+  // 21: consecutive minutes of significant battery drain
   weatherString += String(charComma);
-  if (false) {
-    if (strWindDir.length() < 3) weatherString += String("_");
-    if (strWindDir.length() < 2) weatherString += String("_");
-    weatherString += strWindDir;
-  } else if (battDrainMinutes > 0) {
+  if (battDrainMinutes > 0) {
     weatherString += String(battDrainMinutes);
   }
 
-  // 22:
+  // 22: net battery drain since boot (mAh)
   weatherString += String(charComma);
   weatherString += String(battDrainmA / 60.0, 1);
 
