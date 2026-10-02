@@ -145,7 +145,8 @@ struct structCamStatus {
   bool NorthDesireOn : 1;
   bool BrainDesireOn : 1;
   bool badWeather : 1;
-  byte padding    : 4;
+  bool scheduleOnly : 1;  // 10am-6pm auto on/off; ignore solar/battery checks
+  byte padding    : 3;
 };
 
 structCamStatus camStatus;
@@ -328,6 +329,8 @@ const int   camDrainMinutesForLowV = 10;      // serious-drain minutes before vo
 #endif
 const float camSolarMaWeak = 250.0f;         // solar cannot support camera loads when below this
 const int   camSolarDeficitMinutes = 12;       // serious drain + weak solar for this long → shutoff
+const int   camScheduleStartHour = 10;         // schedule-only mode: auto-on at 10:00
+const int   camScheduleEndHour = 18;           // schedule-only mode: auto-off at 18:00 (6 PM)
 
 //INA 219 volt & current sensor. MMA means Modified Moving Average. PWM charging requires some smoothing.
 const int ina219a_solar_MMAcount = 512;
@@ -1033,17 +1036,34 @@ void loop()
       *  C A M E R A S    CAMERAS    C A M E R A S
       * *************************************************/
 
-      // A short while after sunrise, turn ON the cameras, if charging conditions are good enough.
-      if ( (minutesToday > sunrise) and (minutesToday < sunset - 120) // Subtract 120 mins in the evening, because sun disappears behind large mountains early.
-       and (((ina219a_solar_ma > 500) and (ina219a_solar_volts > 14))
-        or (ina219a_solar_volts > 17.5))
-       and not (camStatus.badWeather)
-       and (battDrainmA > camDrainmAAllowTurnOn)) {
-        // If it's early enough in the day, and charging voltage is high enough, enable cameras.
+      bool shouldAutoEnableCams = false;
+      if (camStatus.scheduleOnly) {
+        // Fixed 10am-6pm schedule; no solar or battery gating.
+        shouldAutoEnableCams = (hour() >= camScheduleStartHour)
+          and (hour() < camScheduleEndHour)
+          and not (camStatus.badWeather);
+      } else {
+        // After sunrise, turn ON when charging conditions are good enough.
+        shouldAutoEnableCams = (minutesToday > sunrise) and (minutesToday < sunset - 120) // Subtract 120 mins in the evening, because sun disappears behind large mountains early.
+         and (((ina219a_solar_ma > 500) and (ina219a_solar_volts > 14))
+          or (ina219a_solar_volts > 17.5))
+         and not (camStatus.badWeather)
+         and (battDrainmA > camDrainmAAllowTurnOn);
+      }
+
+      if (shouldAutoEnableCams) {
         static bool camPowerMsgShown = false;
-        if (!camPowerMsgShown) {
+        static bool camScheduleMsgShown = false;
+        if (camStatus.scheduleOnly) {
+          if (!camScheduleMsgShown) {
+            wxLogTag(F("CAM"), F("schedule mode - cameras + continuous WiFi (10am-6pm)"));
+            camScheduleMsgShown = true;
+          }
+          camPowerMsgShown = false;
+        } else if (!camPowerMsgShown) {
           wxLogTag(F("CAM"), F("daytime power OK - cameras + continuous WiFi"));
           camPowerMsgShown = true;
+          camScheduleMsgShown = false;
         }
         keepUbiquitiOn = true;
         EEPROM.update(eeKeepUbiOn, true);
@@ -1058,35 +1078,37 @@ void loop()
       }
 
 
-      // Track sustained serious battery drain; shut off cameras only when deficit is real and lasting.
-      bool seriousDrainMinute = (ina219b_battery_ma < camDrainMaThreshold);
-      bool weakSolar = (ina219a_solar_ma < camSolarMaWeak);
-      bool charging = ((ina219b_battery_ma > 50) or (ina219a_solar_volts > 16));
+      if (not camStatus.scheduleOnly) {
+        // Track sustained serious battery drain; shut off cameras only when deficit is real and lasting.
+        bool seriousDrainMinute = (ina219b_battery_ma < camDrainMaThreshold);
+        bool weakSolar = (ina219a_solar_ma < camSolarMaWeak);
+        bool charging = ((ina219b_battery_ma > 50) or (ina219a_solar_volts > 16));
 
-      if (seriousDrainMinute) {
-        if (battDrainMinutes < 0) { battDrainMinutes = 0; }
-        battDrainMinutes += 1;
+        if (seriousDrainMinute) {
+          if (battDrainMinutes < 0) { battDrainMinutes = 0; }
+          battDrainMinutes += 1;
 
-        bool shutoffCams = false;
-        if (battDrainMinutes >= camDrainMinutesToShutoff) shutoffCams = true;
-        if (battDrainmA < camDrainmAShutoff) shutoffCams = true;
-        if ((ina219b_battery_volts < camLowVoltageShutoff) and (battDrainMinutes >= camDrainMinutesForLowV)) shutoffCams = true;
-        if (weakSolar and (battDrainMinutes >= camSolarDeficitMinutes)) shutoffCams = true;
+          bool shutoffCams = false;
+          if (battDrainMinutes >= camDrainMinutesToShutoff) shutoffCams = true;
+          if (battDrainmA < camDrainmAShutoff) shutoffCams = true;
+          if ((ina219b_battery_volts < camLowVoltageShutoff) and (battDrainMinutes >= camDrainMinutesForLowV)) shutoffCams = true;
+          if (weakSolar and (battDrainMinutes >= camSolarDeficitMinutes)) shutoffCams = true;
 
-        if (shutoffCams) {
-          wxLogTag(F("CAM"), F("off - excessive battery drain"));
-          disableCamSouth();
-          disableCamNorth();
-          disableCamBrain();
-          keepUbiquitiOn = false;
-          EEPROM.update(eeKeepUbiOn, false);
+          if (shutoffCams) {
+            wxLogTag(F("CAM"), F("off - excessive battery drain"));
+            disableCamSouth();
+            disableCamNorth();
+            disableCamBrain();
+            keepUbiquitiOn = false;
+            EEPROM.update(eeKeepUbiOn, false);
+          }
+        } else if (charging) {
+          if (battDrainMinutes > 0) { battDrainMinutes = 0; }
+          battDrainMinutes -= 1;
+        } else {
+          // Near-neutral current: decay streak instead of instant reset (avoids flapping on noise).
+          if (battDrainMinutes > 0) { battDrainMinutes -= 1; }
         }
-      } else if (charging) {
-        if (battDrainMinutes > 0) { battDrainMinutes = 0; }
-        battDrainMinutes -= 1;
-      } else {
-        // Near-neutral current: decay streak instead of instant reset (avoids flapping on noise).
-        if (battDrainMinutes > 0) { battDrainMinutes -= 1; }
       }
       battDrainmA += ina219b_battery_ma;
 
@@ -1941,6 +1963,7 @@ String getWeatherString() {
   if (camStatus.NorthDesireOn)  { weatherString += String("N"); }
   if (camStatus.BrainDesireOn)  { weatherString += String("B"); }
   if (camStatus.badWeather)  { weatherString += String("X"); }
+  if (camStatus.scheduleOnly) { weatherString += String("O"); }
   if (telnetSeconds) {
     weatherString += String("T=");
     weatherString += String(telnetSeconds);

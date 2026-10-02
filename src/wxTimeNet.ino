@@ -219,6 +219,18 @@ bool checkEthIncomingData() {
               EEPROM.put(eeCamStatus, camStatus);
               incomingClient.println(F(" done!"));
               break;
+
+            case 'O': // Schedule-only camera mode: 10am-6pm, no solar/battery checks.
+              if (camStatus.scheduleOnly) {
+                incomingClient.print(F("O detected, schedule-only mode OFF — cameras use solar/battery logic again... "));
+                camStatus.scheduleOnly = false;
+              } else {
+                incomingClient.print(F("O detected, schedule-only mode ON — cameras auto 10am-6pm, ignoring solar/battery... "));
+                camStatus.scheduleOnly = true;
+              }
+              EEPROM.put(eeCamStatus, camStatus);
+              incomingClient.println(F(" done!"));
+              break;
               
             case 'A': // for turn ALL cameras on
               incomingClient.print(F("A detected, turning on all cameras... "));
@@ -358,6 +370,7 @@ bool checkEthIncomingData() {
               incomingClient.println(F("A: Turn ON all Cameras (Brain Box, South, North)."));
               incomingClient.println(F("a: Turn OFF all Cameras (Brain Box, South, North)."));
               incomingClient.println(F("X: Bad Weather forecast, disable AUTO TURN ON for cameras. Can still be manually turned on."));
+              incomingClient.println(F("O: Schedule-only camera mode (10am-6pm, no solar/battery checks). Toggle."));
               incomingClient.println(F("J: Force an NTP check to see if the RTC should be updated."));
               incomingClient.println(F("T: Add one hour to RTC clock, for DST end in Fall. Takes 10 minutes to take effect!!"));
               incomingClient.println(F("t: Subtract one hour from RTC clock, for DST begin in Spring. Takes 10 minutes to take effect!!"));
@@ -374,6 +387,7 @@ bool checkEthIncomingData() {
               incomingClient.print(F(" extra (")); incomingClient.print(uploadRetryNum + 1); incomingClient.println(F(" total PUT attempts)"));
               incomingClient.print(F("  camStatus EEPROM value: ")); incomingClient.println(EEPROM.read(eeCamStatus));
               incomingClient.print(F("  Bad Weather bit:        ")); incomingClient.println(camStatus.badWeather);
+              incomingClient.print(F("  Schedule-only mode:     ")); incomingClient.println(camStatus.scheduleOnly);
               incomingClient.print(F("  CamSouth desired on:    ")); incomingClient.println(camStatus.SouthDesireOn);
               incomingClient.print(F("  CamNorth desired on:    ")); incomingClient.println(camStatus.NorthDesireOn);
               incomingClient.print(F("  CamBrain desired on:    ")); incomingClient.println(camStatus.BrainDesireOn);
