@@ -1368,6 +1368,8 @@ void loop()
     **/
     //if (justBooted) Serial.println(getWeatherString());               // print every second for the first 15 secs after booting.
     //else if (seconds % 10 == 0) Serial.println(getWeatherString());   // then every 10 seconds
+
+    renogyPoll();
   } // END of ONCE A SECOND loop (every 1000ms)
 
 
@@ -1808,7 +1810,7 @@ String getWeatherString() {
   byte wxMinute = minute();
   wxCache_lastSaved = wxMinute;
 
-  renogyUpdate();
+  renogyFinalizeMinute();
 
   //Must read temperature first to get calibration for humidity and pressure.
   float temperature2temp = bme280b.readTempC();

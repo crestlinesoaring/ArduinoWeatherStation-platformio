@@ -8,6 +8,7 @@ extern float renogy_solar_amps;
 extern bool renogy_connected;
 
 void renogyInit();
-void renogyUpdate();
+void renogyPoll();
+void renogyFinalizeMinute();
 
 #endif
