@@ -311,8 +311,23 @@ float pres5min[5];
 float batt_lvl = 11.8;     // [analog value from 0 to 1023]
 float light_lvl = 455;     // [analog value from 0 to 1023]
 
-float battDrainmA = 0;      // Cumulative sun of minutely better current. Used to track short term battery drain, so we can shut things off in case of clouds etc.
-int   battDrainMinutes = 0; // Short term tracking of number of subsequent minutes of battery drain. 
+float battDrainmA = 0;      // Cumulative sum of minutely battery current (mA·min; /60 ≈ mAh). Net since boot.
+int   battDrainMinutes = 0; // Consecutive minutes of significant battery discharge (see camDrainMaThreshold).
+
+// Daytime camera shutoff — only on sustained serious deficit, not brief load blips or INA noise.
+// ina219b_battery_ma includes battery_ma_offset (+30); small negatives are often not real drain.
+const float camDrainMaThreshold = -120.0f;   // mA: minute counts as draining only below this
+const int   camDrainMinutesToShutoff = 15;   // consecutive serious-drain minutes before cameras off
+const float camDrainmAShutoff = -18000.0f;   // mA·min net since boot (~300 mAh cumulative deficit)
+const float camDrainmAAllowTurnOn = -3000.0f; // mA·min (~50 mAh net deficit still OK to auto-enable cams)
+const int   camDrainMinutesForLowV = 10;      // serious-drain minutes before voltage can trigger shutoff
+#if BATTERY_TYPE == 'F'
+  const float camLowVoltageShutoff = 13.15f; // LiFePO4: flat until nearly empty; 12.5 V is meaningless
+#else
+  const float camLowVoltageShutoff = 12.5f;  // AGM
+#endif
+const float camSolarMaWeak = 250.0f;         // solar cannot support camera loads when below this
+const int   camSolarDeficitMinutes = 12;       // serious drain + weak solar for this long → shutoff
 
 //INA 219 volt & current sensor. MMA means Modified Moving Average. PWM charging requires some smoothing.
 const int ina219a_solar_MMAcount = 512;
@@ -1023,7 +1038,7 @@ void loop()
        and (((ina219a_solar_ma > 500) and (ina219a_solar_volts > 14))
         or (ina219a_solar_volts > 17.5))
        and not (camStatus.badWeather)
-       and (battDrainmA > -500)) {
+       and (battDrainmA > camDrainmAAllowTurnOn)) {
         // If it's early enough in the day, and charging voltage is high enough, enable cameras.
         static bool camPowerMsgShown = false;
         if (!camPowerMsgShown) {
@@ -1043,12 +1058,22 @@ void loop()
       }
 
 
-      // Keep track of minutes with battery drain; shut off cameras & full-time Ubiquiti if there isn't enough sun.
-      if (ina219b_battery_ma < 0) {
+      // Track sustained serious battery drain; shut off cameras only when deficit is real and lasting.
+      bool seriousDrainMinute = (ina219b_battery_ma < camDrainMaThreshold);
+      bool weakSolar = (ina219a_solar_ma < camSolarMaWeak);
+      bool charging = ((ina219b_battery_ma > 50) or (ina219a_solar_volts > 16));
+
+      if (seriousDrainMinute) {
         if (battDrainMinutes < 0) { battDrainMinutes = 0; }
         battDrainMinutes += 1;
-        // If the battery's been draining too long (minutes) or too much (milliamp-minutes), cut the cameras.
-        if (((battDrainMinutes >= 5) or (battDrainmA < -8000) or ((ina219b_battery_volts < 12.5) and (battDrainMinutes > 1)) ) ) {
+
+        bool shutoffCams = false;
+        if (battDrainMinutes >= camDrainMinutesToShutoff) shutoffCams = true;
+        if (battDrainmA < camDrainmAShutoff) shutoffCams = true;
+        if ((ina219b_battery_volts < camLowVoltageShutoff) and (battDrainMinutes >= camDrainMinutesForLowV)) shutoffCams = true;
+        if (weakSolar and (battDrainMinutes >= camSolarDeficitMinutes)) shutoffCams = true;
+
+        if (shutoffCams) {
           wxLogTag(F("CAM"), F("off - excessive battery drain"));
           disableCamSouth();
           disableCamNorth();
@@ -1056,13 +1081,12 @@ void loop()
           keepUbiquitiOn = false;
           EEPROM.update(eeKeepUbiOn, false);
         }
-      } else if ((ina219b_battery_ma > 50) or (ina219a_solar_volts > 16)) {
-        // track positive charging moments
+      } else if (charging) {
         if (battDrainMinutes > 0) { battDrainMinutes = 0; }
         battDrainMinutes -= 1;
       } else {
-        // reset some of the countdown timers.
-        battDrainMinutes = 0;
+        // Near-neutral current: decay streak instead of instant reset (avoids flapping on noise).
+        if (battDrainMinutes > 0) { battDrainMinutes -= 1; }
       }
       battDrainmA += ina219b_battery_ma;
 

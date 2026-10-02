@@ -213,8 +213,8 @@
           (set manually via telnet command <code>X</code>).
         </li>
         <li>
-          <strong>Drain budget OK:</strong> <code>battDrainmA &gt; &minus;500</code>
-          (cumulative net drain since boot has not exceeded threshold).
+          <strong>Drain budget OK:</strong> <code>battDrainmA &gt; &minus;3000</code>
+          (~50 mAh net deficit since boot; was &minus;500 / ~8 mAh).
         </li>
       </ol>
 
@@ -233,7 +233,12 @@
 
     <section>
       <h2><span class="badge badge-off">Off</span> Turning Cameras Off &mdash; Battery Drain</h2>
-      <p>Two tracked metrics drive the drain-based shutdown:</p>
+      <p>
+        Daytime shutoff requires <strong>sustained serious deficit</strong>, not every brief blip below zero.
+        INA219 readings include a +30&nbsp;mA offset; small negative values are often noise, not real drain.
+        A minute counts as <em>serious drain</em> only when
+        <code>ina219b_battery_ma &lt; &minus;120</code> (<code>camDrainMaThreshold</code>).
+      </p>
 
       <table>
         <thead>
@@ -247,17 +252,17 @@
           <tr>
             <td><code>battDrainMinutes</code></td>
             <td><code>int</code></td>
-            <td>Count of consecutive minutes the battery is discharging</td>
+            <td>Consecutive minutes of <em>serious</em> discharge (&lt; &minus;120&nbsp;mA)</td>
           </tr>
           <tr>
             <td><code>battDrainmA</code></td>
             <td><code>float</code></td>
-            <td>Running sum of <code>ina219b_battery_ma</code> added each minute (mA&middot;min; &divide; 60 &asymp; mAh). Never reset except on reboot.</td>
+            <td>Running sum of <code>ina219b_battery_ma</code> each minute (mA&middot;min; &divide; 60 &asymp; mAh). Net since boot; charging minutes add back.</td>
           </tr>
         </tbody>
       </table>
 
-      <h3>Each minute: battery is discharging (<code>ina219b_battery_ma &lt; 0</code>)</h3>
+      <h3>Each minute: serious discharge (<code>ina219b_battery_ma &lt; &minus;120</code>)</h3>
       <ul>
         <li>Increment <code>battDrainMinutes</code></li>
         <li>If <strong>any</strong> of the following trip, all three cameras are disabled and <code>keepUbiquitiOn</code> is cleared:</li>
@@ -273,18 +278,27 @@
         <tbody>
           <tr>
             <td>1</td>
-            <td><code>battDrainMinutes &gt;= 5</code></td>
-            <td>5 or more consecutive minutes of battery drain</td>
+            <td><code>battDrainMinutes &gt;= 15</code></td>
+            <td>15+ consecutive minutes of serious discharge (&gt;120&nbsp;mA net out)</td>
           </tr>
           <tr>
             <td>2</td>
-            <td><code>battDrainmA &lt; &minus;8000</code></td>
-            <td>Cumulative drain exceeds ~133 mAh net since boot</td>
+            <td><code>battDrainmA &lt; &minus;18000</code></td>
+            <td>Cumulative net deficit exceeds ~300&nbsp;mAh since boot</td>
           </tr>
           <tr>
             <td>3</td>
-            <td><code>ina219b_battery_volts &lt; 12.5</code> <strong>and</strong> <code>battDrainMinutes &gt; 1</code></td>
-            <td>Low voltage (&lt; 12.5 V) with 2+ minutes of drain</td>
+            <td><code>ina219b_battery_volts &lt; camLowVoltageShutoff</code> <strong>and</strong> <code>battDrainMinutes &gt;= 10</code></td>
+            <td>
+              Low voltage with sustained drain &mdash;
+              <strong>13.15&nbsp;V</strong> (LiFePO<sub>4</sub>) or <strong>12.5&nbsp;V</strong> (AGM).
+              LiFePO<sub>4</sub> voltage stays flat until nearly empty; this only fires when actually low.
+            </td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td><code>ina219a_solar_ma &lt; 250</code> <strong>and</strong> <code>battDrainMinutes &gt;= 12</code></td>
+            <td>Cloudy-day pattern: serious drain while solar cannot support loads</td>
           </tr>
         </tbody>
       </table>
@@ -296,9 +310,9 @@
         <li>Decrement <code>battDrainMinutes</code> by 1 (allows recovery from near-threshold state)</li>
       </ul>
 
-      <h3>Each minute: neutral (not clearly draining or charging)</h3>
+      <h3>Each minute: neutral (&minus;120 to +50&nbsp;mA, not clearly draining or charging)</h3>
       <ul>
-        <li><code>battDrainMinutes = 0</code></li>
+        <li>Decrement <code>battDrainMinutes</code> by 1 if &gt; 0 (slow decay instead of instant reset)</li>
       </ul>
 
       <p>Regardless of state, each minute: <code>battDrainmA += ina219b_battery_ma</code></p>
@@ -347,16 +361,18 @@
       <h2>Decision Flow (simplified)</h2>
       <div class="flow">Every minute
   │
-  ├─ Daytime + good solar + not badWeather + battDrainmA &gt; -500?
+  ├─ Daytime + good solar + not badWeather + battDrainmA &gt; -3000?
   │     YES → Enable South/North cameras + continuous WiFi
   │
-  ├─ Battery discharging (ina219b_battery_ma &lt; 0)?
+  ├─ Serious discharge (ina219b_battery_ma &lt; -120)?
   │     YES → Increment battDrainMinutes
-  │           ├─ 5+ drain mins  OR  battDrainmA &lt; -8000  OR  (volts &lt; 12.5V AND drain &gt; 1 min)?
+  │           ├─ 15+ serious-drain mins  OR  battDrainmA &lt; -18000
+  │           │  OR  (volts &lt; camLowVoltage AND 10+ serious mins)
+  │           │  OR  (solar &lt; 250mA AND 12+ serious mins)?
   │           │     YES → Disable ALL cameras + clear keepUbiquitiOn
   │           └─ NO  → Keep tracking
   │     CHARGING (ma &gt; 50 OR solar &gt; 16V) → Reset/decrement drain counters
-  │     NEUTRAL → battDrainMinutes = 0
+  │     NEUTRAL → Decrement battDrainMinutes (slow decay)
   │
   ├─ Hour == 18 (6 PM)? → Disable all cameras
   │
@@ -366,9 +382,11 @@
     <section>
       <h2>Design Intent</h2>
       <p>
-        Auto-run cameras only when solar is charging well enough to support them, and cut them quickly
-        when clouds or load cause sustained battery drain &mdash; before the station hits critical voltage
-        and enters full sleep mode.
+        Auto-run cameras only when solar is charging well enough to support them, and cut them when
+        clouds or load cause <em>sustained serious</em> battery drain &mdash; before the station hits
+        critical voltage and enters full sleep mode. LiFePO<sub>4</sub> voltage is a poor early indicator
+        (flat until nearly empty), so current-based and solar-deficit metrics carry most of the daytime
+        shutoff logic; voltage is only used after 10+ minutes of serious discharge.
       </p>
       <p>
         Drain metrics (<code>battDrainMinutes</code>, <code>battDrainmA / 60</code> as mAh) are also
