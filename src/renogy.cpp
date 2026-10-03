@@ -12,8 +12,9 @@ float renogy_solar_amps = 0;
 bool renogy_connected = false;
 
 static float minuteVoltSum = 0;
+static uint16_t minuteVoltCount = 0;
 static float minuteAmpSum = 0;
-static uint16_t minuteSampleCount = 0;
+static uint16_t minuteAmpCount = 0;
 static unsigned long lastPollMillis = 0;
 
 static bool renogyReadOnce(float &volts, float &amps) {
@@ -37,25 +38,31 @@ void renogyPoll() {
 
   float volts = 0;
   float amps = 0;
-  if (renogyReadOnce(volts, amps)) {
-    minuteVoltSum += volts;
-    minuteAmpSum += amps;
-    minuteSampleCount++;
-  }
+  if (!renogyReadOnce(volts, amps)) return;
+
+  minuteVoltSum += volts;
+  minuteVoltCount++;
+  minuteAmpSum += amps;
+  minuteAmpCount++;
 }
 
 void renogyFinalizeMinute() {
-  if (minuteSampleCount > 0) {
-    renogy_solar_volts = minuteVoltSum / minuteSampleCount;
-    renogy_solar_amps = minuteAmpSum / minuteSampleCount;
+  if (minuteVoltCount > 0) {
+    renogy_solar_volts = minuteVoltSum / minuteVoltCount;
     renogy_connected = true;
   } else {
     renogy_solar_volts = 0;
-    renogy_solar_amps = 0;
     renogy_connected = false;
   }
 
+  if (minuteAmpCount > 0) {
+    renogy_solar_amps = minuteAmpSum / minuteAmpCount;
+  } else {
+    renogy_solar_amps = 0;
+  }
+
   minuteVoltSum = 0;
+  minuteVoltCount = 0;
   minuteAmpSum = 0;
-  minuteSampleCount = 0;
+  minuteAmpCount = 0;
 }
