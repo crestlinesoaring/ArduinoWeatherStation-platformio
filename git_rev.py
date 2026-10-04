@@ -31,7 +31,8 @@ def get_version_info():
         year, month, day = commit_date.split("-")
         version_date = f"{year}/{month}/{day}"
         version_date_short = f"{year[2:]}{month}{day}"
-        version_id = f"{version_date_short}-{commit_hash}"
+        short_hash = commit_hash[-4:] if commit_hash != "unknown" else commit_hash
+        version_id = f"{version_date_short}-{short_hash}"
         commit_dt = datetime.fromisoformat(commit_iso.replace("Z", "+00:00"))
         version_datetime = commit_dt.astimezone(timezone.utc).strftime(
             "%Y/%m/%d %H:%M:%S UTC"
