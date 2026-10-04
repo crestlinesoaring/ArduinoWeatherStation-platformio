@@ -1239,21 +1239,25 @@ void loop()
         Serial.println(tempWeatherString);
         ina219a_solar_MMAloops = 0;  //Reset to zero after upload (even if not successful)
 
+        bool uploadThisMinute = (minute() % 5 == 0) and (millis() > 180000);
+        if (uploadThisMinute) {
+          // Cache this minute before upload so 1-5 and 6-10 batches include the boundary minute.
+          saveWeatherToCache(tempWeatherString);
+        }
+
 #ifndef BENCH_MODE
         // Send once every 5 minutes. During the night, nothing for now.
         if ((minute() % 5 == 4) and (not uploadPending)) {
           uploadPending = true;
           enableWifi();
         }
-        if ((minute() % 5 == 0) and (millis() > 180000)) { // upload weather at every even 5 minutes and if stations runs for more than 3 minutes 
+        if (uploadThisMinute) { // upload weather at every even 5 minutes and if stations runs for more than 3 minutes 
           //Time to upload!
           uploadPending = true;
           wxLogSection(F("UPLOAD"));
           enableEthernet();
           if (ethEnabled){ //if enableEthernet() fails to establish a connection, skip everything and shut connection down until next five minutes
             msTemp = millis();
-            // Upload before caching this minute so the lagged five-minute batch does not
-            // spill the current minute into the next upload window (e.g. :50 -> :55).
             bool wasJustRestarted = justRestarted;
             uploadCachedWeather(minute(), uploadStatus);
             if (wasJustRestarted) {
@@ -1303,9 +1307,9 @@ void loop()
           disableEthernet();
           wxLogRule();
           uploadPending = false;
-        } // End every 5th minute: if (minute() %5 == 0)
+        } // End every 5th minute
 #else  // BENCH_MODE - upload over Ethernet every 5 minutes, no Ubiquiti wait
-        if ((minute() % 5 == 0) and (millis() > 180000)) {
+        if (uploadThisMinute) {
           if (not ethEnabled) enableEthernet();
           if (ethEnabled) {
             msTemp = millis();
@@ -1353,7 +1357,9 @@ void loop()
           }
         }
 #endif
-        saveWeatherToCache(tempWeatherString);
+        if (!uploadThisMinute) {
+          saveWeatherToCache(tempWeatherString);
+        }
 
       } // End "new minute()" (clock minute, not runtime minute)
     }
@@ -1484,36 +1490,36 @@ bool shouldUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour, co
   return true;
 }
 
-static byte expectedCacheMinute(byte uploadMinute, int i) {
-  // Must use signed math: at :00, (0 + 6 - 10) underflows as byte to 252, not 56.
-  int m = (int)uploadMinute + i - 10;
-  m %= 60;
-  if (m < 0) m += 60;
-  return (byte)m;
+static byte expectedHourForMinute(byte uploadMinute, byte expectedMinute) {
+  byte expectedHour = hour();
+  if (expectedMinute > uploadMinute) expectedHour = (expectedHour + 23) % 24;
+  return expectedHour;
+}
+
+static void tryUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour, byte& uploadStatus) {
+  wdt_reset();
+  if (shouldUploadCacheSlot(slot, expectedMinute, expectedHour, wxStringCache[slot])) {
+    uploadStatus = uploadWeather(wxStringCache[slot]);
+  }
 }
 
 void uploadCachedWeather(byte uploadMinute, byte& uploadStatus) {
-  if (uploadMinute % 10 == 0) {
-    for (int i = 6; i <= 10; i++) {
-      byte slot = i % 10;
-      byte expectedMinute = expectedCacheMinute(uploadMinute, i);
-      byte expectedHour = hour();
-      if (expectedMinute > uploadMinute) expectedHour = (expectedHour + 23) % 24;
-      wdt_reset();
-      if (shouldUploadCacheSlot(slot, expectedMinute, expectedHour, wxStringCache[slot])) {
-        uploadStatus = uploadWeather(wxStringCache[slot]);
-      }
+  // Five-minute batches: 1-5 at :05, :15, ... and 6-10 at :10, :20, ... (:00 wraps to slot 0).
+  // Caller caches the upload minute before invoking this function.
+  for (byte k = 0; k < 5; k++) {
+    byte expectedMinute;
+    byte slot;
+    byte expectedHour;
+    if (uploadMinute % 10 == 0) {
+      expectedMinute = (byte)(((int)uploadMinute - 4 + k + 60) % 60);
+      slot = expectedMinute % 10;
+      expectedHour = expectedHourForMinute(uploadMinute, expectedMinute);
+    } else {
+      expectedMinute = uploadMinute - 4 + k;
+      slot = 1 + k;
+      expectedHour = hour();
     }
-  } else {
-    byte baseMinute = uploadMinute - (uploadMinute % 10) + 1;
-    for (int i = 1; i <= 5; i++) {
-      byte slot = i;
-      byte expectedMinute = baseMinute + i - 1;
-      wdt_reset();
-      if (shouldUploadCacheSlot(slot, expectedMinute, hour(), wxStringCache[slot])) {
-        uploadStatus = uploadWeather(wxStringCache[slot]);
-      }
-    }
+    tryUploadCacheSlot(slot, expectedMinute, expectedHour, uploadStatus);
   }
 }
 
