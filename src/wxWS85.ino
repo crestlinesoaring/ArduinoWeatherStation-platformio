@@ -7,7 +7,7 @@
 
 #define WS85_SERIAL Serial1
 
-// ~30 samples at 2 s/frame ≈ 60 s smoothing window (WIND_SPEED_AVG_SIZE in main sketch)
+// Wind speed is averaged over each clock minute in the main sketch.
 static int ws85Dir = 0;
 static float ws85SpeedMps = 0;
 static float ws85GustMps = 0;

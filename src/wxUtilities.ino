@@ -5,6 +5,19 @@
  * 
  */
 
+void accumulateWindSpeedSample(float speed) {
+  windSpeedMinuteSum += speed;
+  windSpeedMinuteCount++;
+}
+
+void finalizeWindSpeedMinute() {
+  if (windSpeedMinuteCount > 0) {
+    windSpeedAvg = windSpeedMinuteSum / windSpeedMinuteCount;
+  }
+  windSpeedMinuteSum = 0;
+  windSpeedMinuteCount = 0;
+}
+
 // Block for ms milliseconds, resetting the watchdog about every 100 ms.
 void delayWithWdt(unsigned long ms)
 {

@@ -275,10 +275,11 @@ volatile byte windClicks = 0;
  * 23+: failures, reboot marker, etc.
  */
 
-float windSpeedAvg = 0; //Lets try keeping avg using MATH!
+float windSpeedAvg = 0;
+float windSpeedMinuteSum = 0;
+byte windSpeedMinuteCount = 0;
 
 #define WIND_DIR_AVG_SIZE 60
-#define WIND_SPEED_AVG_SIZE 30
 #define VOLTAGE_AVG_SIZE 10
 int winddiravg[WIND_DIR_AVG_SIZE];  //120 (now 60) ints to keep track of 2 (now 1) minute average.
 float windgust_10m[10];             //10 floats to keep track of 10 minute max
@@ -853,8 +854,7 @@ void setup()
     	
 
   /* Jump start the wind speed by reading the initial value from the RTC's RAM.
-      This gets saved every minute. Since Windspeed is an MMA, it takes almost a minute
-      to get it up to speed. WS85 provides its own speed - RTC seed holds stale pulse values. */
+      This gets saved every minute. WS85 provides its own speed - RTC seed holds stale pulse values. */
   
 #ifdef ANEMO_WS85
   windSpeedAvg = 0;
@@ -928,6 +928,10 @@ void loop()
     seconds += (int)(elapsedMillis / 1000);
     wdt_reset(); //I think once a second is enough for our 8 second watchdog.
 
+    if (!justBooted && lastRealMinute != minute()) {
+      finalizeWindSpeedMinute();
+    }
+
     //Calc the wind speed and direction every second for 120 second to get 2 minute average
 #ifdef ANEMO_WS85
     if (ws85ConsumeFrame()) {
@@ -937,10 +941,7 @@ void loop()
 
       windspeedmph = currentSpeed;
 
-      if (windSpeedAvg == 0) windSpeedAvg = currentSpeed;
-      float windInc = currentSpeed / WIND_SPEED_AVG_SIZE;
-      float windDec = windSpeedAvg / WIND_SPEED_AVG_SIZE;
-      windSpeedAvg = windSpeedAvg - windDec + windInc;
+      accumulateWindSpeedSample(currentSpeed);
 
       if (currentGust > windgust_10m[minutes_10m]) {
         windgust_10m[minutes_10m] = currentGust;
@@ -962,11 +963,7 @@ void loop()
     windspeedmph = currentSpeed; //update global variable for windspeed when using the printWeather() function
     int currentDirection = get_wind_direction();
 
-    //Calculate 1 min moving average wind speed instead of using an array
-    if (windSpeedAvg == 0) windSpeedAvg = currentSpeed;
-    float windInc = currentSpeed / WIND_SPEED_AVG_SIZE;
-    float windDec = windSpeedAvg / WIND_SPEED_AVG_SIZE;
-    windSpeedAvg = windSpeedAvg - windDec + windInc;
+    accumulateWindSpeedSample(currentSpeed);
 
     //Check to see if this is a gust for the minute
     if(currentSpeed > windgust_10m[minutes_10m])
@@ -1464,6 +1461,7 @@ void saveWeatherToCache(const String& weatherString) {
 void finishBootAndCacheWeather() {
   justBooted = false;
   lastRealMinute = minute();
+  finalizeWindSpeedMinute();
   tempWeatherString = getWeatherString();
   Serial.print(F("[WX] "));
   Serial.println(tempWeatherString);
@@ -1486,19 +1484,35 @@ bool shouldUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour, co
   return true;
 }
 
+static byte expectedCacheMinute(byte uploadMinute, int i) {
+  // Must use signed math: at :00, (0 + 6 - 10) underflows as byte to 252, not 56.
+  int m = (int)uploadMinute + i - 10;
+  m %= 60;
+  if (m < 0) m += 60;
+  return (byte)m;
+}
+
 void uploadCachedWeather(byte uploadMinute, byte& uploadStatus) {
-  // Five-minute batches aligned to 0-4, 5-9, ... 50-54, then 55-59 at :00.
-  // (Old logic used 1-5 / 6-0 decades and broke at :00 due to byte underflow.)
-  byte baseMinute = ((uploadMinute / 5) * 5 + 55) % 60;
-  byte expectedHour = hour();
-  for (byte k = 0; k < 5; k++) {
-    byte expectedMinute = (baseMinute + k) % 60;
-    byte slot = expectedMinute % 10;
-    byte slotHour = expectedHour;
-    if (expectedMinute > uploadMinute) slotHour = (expectedHour + 23) % 24;
-    wdt_reset();
-    if (shouldUploadCacheSlot(slot, expectedMinute, slotHour, wxStringCache[slot])) {
-      uploadStatus = uploadWeather(wxStringCache[slot]);
+  if (uploadMinute % 10 == 0) {
+    for (int i = 6; i <= 10; i++) {
+      byte slot = i % 10;
+      byte expectedMinute = expectedCacheMinute(uploadMinute, i);
+      byte expectedHour = hour();
+      if (expectedMinute > uploadMinute) expectedHour = (expectedHour + 23) % 24;
+      wdt_reset();
+      if (shouldUploadCacheSlot(slot, expectedMinute, expectedHour, wxStringCache[slot])) {
+        uploadStatus = uploadWeather(wxStringCache[slot]);
+      }
+    }
+  } else {
+    byte baseMinute = uploadMinute - (uploadMinute % 10) + 1;
+    for (int i = 1; i <= 5; i++) {
+      byte slot = i;
+      byte expectedMinute = baseMinute + i - 1;
+      wdt_reset();
+      if (shouldUploadCacheSlot(slot, expectedMinute, hour(), wxStringCache[slot])) {
+        uploadStatus = uploadWeather(wxStringCache[slot]);
+      }
     }
   }
 }
