@@ -1063,18 +1063,26 @@ String makeStationDefinesSuffix() {
   return s;
 }
 
-// Build the HTTP PUT request used to upload a weather string to the CSS web site.
-// Site name (wxSiteName), path (wxUploadPath) and data subfolder (wxBetaText) are defined in Marshall.h.
-String makeUploadWeatherPut(String wxString) {
-  String strPut;
-  strPut += F("PUT ");
-  strPut += wxUploadPath;
-  strPut += F("?sub=");
-  strPut += wxBetaText;
-  strPut += F("&w=");
-  strPut += wxString;
-  strPut += F(" HTTP/1.1\r\nHost: ");
-  strPut += wxSiteName;
-  strPut += F("\r\nConnection: close\r\n\r\n");
-  return strPut;
+// True when putBuf contains non-empty weather data after "&w=".
+bool uploadPutHasWeather(const char* putBuf, size_t putLen) {
+  if (!putBuf || putLen < 12) return false;
+  const char* wMarker = strstr(putBuf, "&w=");
+  if (!wMarker) return false;
+  const char* wVal = wMarker + 3;
+  if (wVal >= putBuf + putLen) return false;
+  if (*wVal == '\0') return false;
+  if (strncmp(wVal, " HTTP", 5) == 0) return false;
+  return true;
+}
+
+// Build the HTTP PUT into a fixed buffer (avoids String heap fragmentation mid-assembly).
+// Returns PUT length, or 0 on truncation / empty w payload.
+size_t buildUploadWeatherPut(char* buf, size_t bufSize, const char* wxString) {
+  if (!buf || bufSize < 64 || !wxString || wxString[0] == '\0') return 0;
+  int n = snprintf(buf, bufSize,
+    "PUT %s?sub=%s&w=%s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
+    wxUploadPath.c_str(), wxBetaText.c_str(), wxString, wxSiteName.c_str());
+  if (n <= 0 || (size_t)n >= bufSize) return 0;
+  if (!uploadPutHasWeather(buf, (size_t)n)) return 0;
+  return (size_t)n;
 }

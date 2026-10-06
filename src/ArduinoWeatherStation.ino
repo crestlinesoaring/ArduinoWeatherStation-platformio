@@ -1506,6 +1506,8 @@ static void tryUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour
 void uploadCachedWeather(byte uploadMinute, byte& uploadStatus) {
   // Five-minute batches: 1-5 at :05, :15, ... and 6-10 at :10, :20, ... (:00 wraps to slot 0).
   // Caller caches the upload minute before invoking this function.
+  Serial.print(F("[UP] freeRam="));
+  Serial.println(freeRam());
   for (byte k = 0; k < 5; k++) {
     byte expectedMinute;
     byte slot;
@@ -1566,6 +1568,7 @@ static void printUploadFailureBody(byte status, int detail) {
   switch (status) {
     case 50: Serial.println(F("network not ready")); break;
     case 51: Serial.println(F("invalid weather string")); break;
+    case 52: Serial.println(F("PUT build failed (empty w or buffer)")); break;
     case 201: Serial.println(F("DNS lookup failed")); break;
     case 200: Serial.println(F("TCP connection failed")); break;
     case 202:
@@ -1611,6 +1614,9 @@ byte uploadWeather(String WeatherString)
     return 51;
   }
 
+  Serial.print(F("[UP] freeRam="));
+  Serial.println(freeRam());
+
   String WeatherString2;
   WeatherString2 = WeatherString;
   if (justRestarted) {
@@ -1627,8 +1633,10 @@ byte uploadWeather(String WeatherString)
   //WeatherString2 += getTimeWithZeros();
   //WeatherString2 += String(charComma);
   //WeatherString2 += String(millis() - msTemp);
-  const int uploadBufSize = 512; // full HTTP PUT; old 248-byte cap truncated weather data tail (defines, ,R, etc.)
+  const size_t uploadBufSize = 512; // full HTTP PUT; old 248-byte cap truncated weather data tail (defines, ,R, etc.)
+  const size_t wxPayloadSize = 400; // room for weather line + defines / retry suffix below HTTP wrapper
   char charPut[uploadBufSize];
+  char wxPayload[wxPayloadSize];
 
   //Save to SD, even if we don't succeed uploading
   // char fileName[13];
@@ -1660,7 +1668,6 @@ byte uploadWeather(String WeatherString)
   
   // Connect to CSS website, do a PUT with weather values. Should be called once for every minute of weather data.
   byte uploadStatus = 90; //90 = haven't tried stopping the client yet.
-  String strPut;
 
   //ShowSockStatus();   //DEBUG: print IP Socket status on serial.
 
@@ -1678,7 +1685,7 @@ byte uploadWeather(String WeatherString)
   int writeDetail = 0;
   int httpStatusCode = 0;
   uploadStatus = 200;
-  int strPutLength = 0;
+  size_t strPutLength = 0;
 
   for (byte attempt = 0; attempt <= uploadRetryNum; attempt++) {
     if (attempt > 0) {
@@ -1694,22 +1701,21 @@ byte uploadWeather(String WeatherString)
       delayWithWdt(500);
     }
 
-    String putWeather = WeatherString2;
+    WeatherString2.toCharArray(wxPayload, wxPayloadSize);
     if (attempt > 0) {
-      putWeather += F(",UploadRetries=");
-      putWeather += String(attempt);
+      size_t wxLen = strlen(wxPayload);
+      int added = snprintf(wxPayload + wxLen, wxPayloadSize - wxLen, ",UploadRetries=%u", attempt);
+      if (added < 0 || wxLen + (size_t)added >= wxPayloadSize) {
+        Serial.println(F("[UP] retry suffix truncated"));
+      }
     }
-    strPut = makeUploadWeatherPut(putWeather);
-    strPutLength = strPut.length();
-    if (strPutLength >= uploadBufSize) {
-      Serial.print(F("uploadWeather: PUT truncated from "));
-      Serial.print(strPutLength);
-      Serial.print(F(" to "));
-      Serial.println(uploadBufSize - 1);
-      strPutLength = uploadBufSize - 1;
+    strPutLength = buildUploadWeatherPut(charPut, uploadBufSize, wxPayload);
+    if (strPutLength == 0) {
+      uploadStatus = 52;
+      printUploadAttemptFailure(attempt, uploadStatus);
+      continue;
     }
-    strPut.toCharArray(charPut, strPutLength + 1);
-    printUploadPutLine(charPut, strPutLength);
+    printUploadPutLine(charPut, (int)strPutLength);
 
     client.setTimeout(600); //timeout in ms
     wdt_reset();
