@@ -1,0 +1,85 @@
+[04:39:01] [WX] 04:39,10/5/2026,01.3,02,118,,,0.0,0.00,J,261004-a49f,A6,32.15,0,0291,14.5,0087,13.64,38:39,UNBO,,44.5
+[04:39:23] [STATUS] 4:39 night (skipping sleep)  batt=13.64V  day@5:55
+[04:40:02] [WX] 04:40,10/5/2026,01.3,02,118,,,0.0,0.00,J,261004-a49f,A6,32.14,0,0300,14.5,0081,13.64,39:40,UNBO,,45.9
+
+[04:40:02] UPLOAD
+[04:40:02] ----------------------------------------
+[04:40:02] [NET] enabling ethernet...
+[04:40:07] [NET] ethernet up  IP 192.168.222.226
+[04:40:07] [NET] DNS www.flymarshall.com -> 35.224.14.226
+[04:40:07] [UP] PUT /wx/ptfUM.php?sub=betaThree&w=04:36,10/5/2026,01.3,00,109,,,0.0,0.00,J,261004-a49f,A6,32.04,0,0243,14.5,0083,13.65,35:39,UNBO,,40.3 HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:40:07] [UP] SUCCESS HTTP 200
+[04:40:07] [UP] PUT /wx/ptfUM.php?sub=betaThree&w=04:37,10/5/2026,01.3,00,109,,,0.0,0.00,J,261004-a49f,A6,32.13,0,0269,14.5,0088,13.65,36:38,UNBO,,41.7 HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:40:08] [UP] SUCCESS HTTP 200
+[04:40:08] [UP] PUT /wx/ptfUM.php?sub=betaThree&w=04:38,10/5/2026,01.3,02,118,,,0.0,0.00,J,261004-a49f,A6,32.10,0,0274,14.5,0092,13.65,37:38,UNBO,,43.1 HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:40:08] [UP] SUCCESS HTTP 200
+[04:40:08] [UP] PUT /wx/ptfUM.php?sub=betaThree&w=04:39,10/5/2026,01.3,02,118,,,0.0,0.00,J,261004-a49f,A6,32.15,0,0291,14.5,0087,13.64,38:39,UNBO,,44.5 HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:40:09] [UP] SUCCESS HTTP 200
+[04:40:09] [UP] PUT /wx/ptfUM.php?sub=betaThree&w=04:40,10/5/2026,01.3,02,118,,,0.0,0.00,J,261004-a49f,A6,32.14,0,0300,14.5,0081,13.64,39:40,UNBO,,45.9 HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:40:09] [UP] SUCCESS HTTP 200
+[04:40:09] [NET] telnet listen (8s)
+[04:40:14] [NET] telnet client connected
+[04:40:17] [CAM] south on
+[04:40:20] [NET] telnet disconnected (6296 ms)
+[04:40:24] [NET] wifi held on (keepUbiquitiOn)
+[04:40:24] [NET] ethernet off  04:40:24
+[04:40:24] ----------------------------------------
+[04:40:27] [STATUS] 4:40 night (skipping sleep)  batt=13.64V  day@5:55
+[04:41:01] [WX] 04:41,10/5/2026,01.3,02,118,,,0.0,0.00,J,261004-a49f,A6,32.24,0,0308,14.5,0068,13.64,40:39,USNBOT=6,,47.2
+[04:41:23] [STATUS] 4:41 night (skipping sleep)  batt=13.64V  day@5:55
+[04:42:00] [WX] 04:42,10/5/2026,01.3,02,118,,,0.0,0.00,J,261004-a49f,A6,32.34,0,0344,14.5,0070,13.63,41:38,USNBO,,48.4
+[04:42:22] [STATUS] 4:42 night (skipping sleep)  batt=13.63V  day@5:55
+[04:43:00] [WX] 04:43,10/5/2026,01.3,02,118,,,0.0,0.00,J,261004-a49f,A6,32.40,0,0378,14.5,0062,13.63,42:38,USNBO,,49.5
+[04:43:22] [STATUS] 4:43 night (skipping sleep)  batt=13.63V  day@5:55
+[04:44:01] [WX] 04:44,10/5/2026,01.3,00,118,,,0.0,0.00,J,261004-a49f,A6,32.43,0,0400,14.5,0061,13.62,43:39,USNBO,,50.7
+[04:44:23] [STATUS] 4:44 night (skipping sleep)  batt=13.62V  day@5:55
+[04:45:02] [WX] 04:45,10/5/2026,01.3,00,118,,,0.0,0.00,J,261004-a49f,A6,32.47,0,0430,14.5,0060,13.62,44:40,USNBO,,51.8
+
+[04:45:02] UPLOAD
+[04:45:02] ----------------------------------------
+[04:45:02] [NET] enabling ethernet...
+[04:45:07] [NET] ethernet up  IP 192.168.222.226
+[04:45:07] [NET] DNS www.flymarshall.com -> 35.224.14.226
+[04:45:07] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:45:07] [UP] SUCCESS HTTP 200
+[04:45:07] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:45:08] [UP] SUCCESS HTTP 200
+[04:45:08] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:45:08] [UP] SUCCESS HTTP 200
+[04:45:08] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:45:09] [UP] SUCCESS HTTP 200
+[04:45:09] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:45:09] [UP] SUCCESS HTTP 200
+[04:45:09] [NET] telnet listen (8s)
+[04:45:18] [NET] wifi held on (keepUbiquitiOn)
+[04:45:18] [NET] ethernet off  04:45:18
+[04:45:18] ----------------------------------------
+[04:45:22] [STATUS] 4:45 night (skipping sleep)  batt=13.62V  day@5:55
+[04:46:01] [WX] 04:46,10/5/2026,01.3,00,118,,,0.0,0.00,J,261004-a49f,A6,32.56,0,0449,14.5,0071,13.62,45:39,USNBO,,52.9
+[04:46:23] [STATUS] 4:46 night (skipping sleep)  batt=13.62V  day@5:55
+[04:47:02] [WX] 04:47,10/5/2026,01.3,00,118,,,0.0,0.00,J,261004-a49f,A6,32.46,0,0471,14.5,0066,13.62,46:40,USNBO,,54.1
+[04:47:22] [STATUS] 4:47 night (skipping sleep)  batt=13.62V  day@5:55
+[04:48:00] [WX] 04:48,10/5/2026,01.3,00,118,,,0.0,0.00,J,261004-a49f,A6,32.56,0,0488,14.5,0082,13.62,47:38,USNBO,,55.3
+[04:48:22] [STATUS] 4:48 night (skipping sleep)  batt=13.61V  day@5:55
+[04:49:01] [WX] 04:49,10/5/2026,01.3,00,118,,,0.0,0.00,J,261004-a49f,A6,32.59,0,0503,14.5,0080,13.61,48:39,USNBO,,56.6
+[04:49:23] [STATUS] 4:49 night (skipping sleep)  batt=13.61V  day@5:55
+[04:50:02] [WX] 04:50,10/5/2026,01.3,00,118,,,0.0,0.00,J,261004-a49f,A6,32.62,0,0503,14.5,0092,13.61,49:40,USNBO,,58.0
+
+[04:50:02] UPLOAD
+[04:50:02] ----------------------------------------
+[04:50:02] [NET] enabling ethernet...
+[04:50:07] [NET] ethernet up  IP 192.168.222.226
+[04:50:07] [NET] DNS www.flymarshall.com -> 35.224.14.226
+[04:50:07] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:50:07] [UP] SUCCESS HTTP 200
+[04:50:07] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:50:08] [UP] SUCCESS HTTP 200
+[04:50:08] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:50:08] [UP] SUCCESS HTTP 200
+[04:50:08] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:50:09] [UP] SUCCESS HTTP 200
+[04:50:09] [UP] PUT /wx/ptfUM.php?sub=betaThree&w= HTTP/1.1  Host: www.flymarshall.com  Connection: close    
+[04:50:09] [UP] SUCCESS HTTP 200
+[04:50:09] [NET] telnet listen (8s)
+[04:50:18] [NET] wifi held on (keepUbiquitiOn)
+[04:50:18] [NET] ethernet off  04:50:18
