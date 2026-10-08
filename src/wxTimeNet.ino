@@ -1063,26 +1063,29 @@ String makeStationDefinesSuffix() {
   return s;
 }
 
-// True when putBuf contains non-empty weather data after "&w=".
-bool uploadPutHasWeather(const char* putBuf, size_t putLen) {
-  if (!putBuf || putLen < 12) return false;
-  const char* wMarker = strstr(putBuf, "&w=");
-  if (!wMarker) return false;
-  const char* wVal = wMarker + 3;
-  if (wVal >= putBuf + putLen) return false;
-  if (*wVal == '\0') return false;
-  if (strncmp(wVal, " HTTP", 5) == 0) return false;
-  return true;
-}
+// Build the HTTP PUT into buf using readable String += assembly.
+// Returns PUT length, or 0 if weather is empty or buf is too small.
+size_t makeUploadWeatherPut(char* buf, size_t bufSize, const String& wxString, byte uploadRetries) {
+  if (!buf || bufSize < 64 || wxString.length() == 0) return 0;
 
-// Build the HTTP PUT into a fixed buffer (avoids String heap fragmentation mid-assembly).
-// Returns PUT length, or 0 on truncation / empty w payload.
-size_t buildUploadWeatherPut(char* buf, size_t bufSize, const char* wxString) {
-  if (!buf || bufSize < 64 || !wxString || wxString[0] == '\0') return 0;
-  int n = snprintf(buf, bufSize,
-    "PUT %s?sub=%s&w=%s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
-    wxUploadPath.c_str(), wxBetaText.c_str(), wxString, wxSiteName.c_str());
-  if (n <= 0 || (size_t)n >= bufSize) return 0;
-  if (!uploadPutHasWeather(buf, (size_t)n)) return 0;
-  return (size_t)n;
+  String strPut;
+  strPut.reserve(96 + wxString.length() + (uploadRetries > 0 ? 16 : 0));
+  strPut += F("PUT ");
+  strPut += wxUploadPath;
+  strPut += F("?sub=");
+  strPut += wxBetaText;
+  strPut += F("&w=");
+  strPut += wxString;
+  if (uploadRetries > 0) {
+    strPut += F(",UploadRetries=");
+    strPut += String(uploadRetries);
+  }
+  strPut += F(" HTTP/1.1\r\nHost: ");
+  strPut += wxSiteName;
+  strPut += F("\r\nConnection: close\r\n\r\n");
+
+  size_t len = strPut.length();
+  if (len == 0 || len >= bufSize) return 0;
+  strPut.toCharArray(buf, bufSize);
+  return len;
 }

@@ -1506,8 +1506,6 @@ static void tryUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour
 void uploadCachedWeather(byte uploadMinute, byte& uploadStatus) {
   // Five-minute batches: 1-5 at :05, :15, ... and 6-10 at :10, :20, ... (:00 wraps to slot 0).
   // Caller caches the upload minute before invoking this function.
-  Serial.print(F("[UP] freeRam="));
-  Serial.println(freeRam());
   for (byte k = 0; k < 5; k++) {
     byte expectedMinute;
     byte slot;
@@ -1634,9 +1632,7 @@ byte uploadWeather(String WeatherString)
   //WeatherString2 += String(charComma);
   //WeatherString2 += String(millis() - msTemp);
   const size_t uploadBufSize = 512; // full HTTP PUT; old 248-byte cap truncated weather data tail (defines, ,R, etc.)
-  const size_t wxPayloadSize = 400; // room for weather line + defines / retry suffix below HTTP wrapper
   char charPut[uploadBufSize];
-  char wxPayload[wxPayloadSize];
 
   //Save to SD, even if we don't succeed uploading
   // char fileName[13];
@@ -1701,15 +1697,7 @@ byte uploadWeather(String WeatherString)
       delayWithWdt(500);
     }
 
-    WeatherString2.toCharArray(wxPayload, wxPayloadSize);
-    if (attempt > 0) {
-      size_t wxLen = strlen(wxPayload);
-      int added = snprintf(wxPayload + wxLen, wxPayloadSize - wxLen, ",UploadRetries=%u", attempt);
-      if (added < 0 || wxLen + (size_t)added >= wxPayloadSize) {
-        Serial.println(F("[UP] retry suffix truncated"));
-      }
-    }
-    strPutLength = buildUploadWeatherPut(charPut, uploadBufSize, wxPayload);
+    strPutLength = makeUploadWeatherPut(charPut, uploadBufSize, WeatherString2, attempt);
     if (strPutLength == 0) {
       uploadStatus = 52;
       printUploadAttemptFailure(attempt, uploadStatus);
