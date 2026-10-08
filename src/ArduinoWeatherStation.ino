@@ -146,7 +146,7 @@ struct structCamStatus {
   bool NorthDesireOn : 1;
   bool BrainDesireOn : 1;
   bool badWeather : 1;
-  bool scheduleOnly : 1;  // 10am-6pm auto on/off; ignore solar/battery checks
+  bool godMode : 1;  // auto on from 10am until night sleep; ignore solar/battery checks
   byte padding    : 3;
 };
 
@@ -333,8 +333,7 @@ const int   camDrainMinutesForLowV = 10;      // serious-drain minutes before vo
 #endif
 const float camSolarMaWeak = 250.0f;         // solar cannot support camera loads when below this
 const int   camSolarDeficitMinutes = 12;       // serious drain + weak solar for this long → shutoff
-const int   camScheduleStartHour = 10;         // schedule-only mode: auto-on at 10:00
-const int   camScheduleEndHour = 18;           // schedule-only mode: auto-off at 18:00 (6 PM)
+const int   camGodModeStartHour = 10;         // god mode: auto-on at 10:00; stays on until goToSleep()
 
 //INA 219 volt & current sensor. MMA means Modified Moving Average. PWM charging requires some smoothing.
 const int ina219a_solar_MMAcount = 512;
@@ -1039,10 +1038,9 @@ void loop()
       * *************************************************/
 
       bool shouldAutoEnableCams = false;
-      if (camStatus.scheduleOnly) {
-        // Fixed 10am-6pm schedule; no solar or battery gating.
-        shouldAutoEnableCams = (hour() >= camScheduleStartHour)
-          and (hour() < camScheduleEndHour)
+      if (camStatus.godMode) {
+        // From 10am until night sleep; no solar or battery gating.
+        shouldAutoEnableCams = (hour() >= camGodModeStartHour)
           and not (camStatus.badWeather);
       } else {
         // After sunrise, turn ON when charging conditions are good enough.
@@ -1055,17 +1053,17 @@ void loop()
 
       if (shouldAutoEnableCams) {
         static bool camPowerMsgShown = false;
-        static bool camScheduleMsgShown = false;
-        if (camStatus.scheduleOnly) {
-          if (!camScheduleMsgShown) {
-            wxLogTag(F("CAM"), F("schedule mode - cameras + continuous WiFi (10am-6pm)"));
-            camScheduleMsgShown = true;
+        static bool camGodModeMsgShown = false;
+        if (camStatus.godMode) {
+          if (!camGodModeMsgShown) {
+            wxLogTag(F("CAM"), F("god mode - cameras + continuous WiFi (10am until sleep)"));
+            camGodModeMsgShown = true;
           }
           camPowerMsgShown = false;
         } else if (!camPowerMsgShown) {
           wxLogTag(F("CAM"), F("daytime power OK - cameras + continuous WiFi"));
           camPowerMsgShown = true;
-          camScheduleMsgShown = false;
+          camGodModeMsgShown = false;
         }
         keepUbiquitiOn = true;
         EEPROM.update(eeKeepUbiOn, true);
@@ -1080,7 +1078,7 @@ void loop()
       }
 
 
-      if (not camStatus.scheduleOnly) {
+      if (not camStatus.godMode) {
         // Track sustained serious battery drain; shut off cameras only when deficit is real and lasting.
         bool seriousDrainMinute = (ina219b_battery_ma < camDrainMaThreshold);
         bool weakSolar = (ina219a_solar_ma < camSolarMaWeak);
@@ -1116,7 +1114,9 @@ void loop()
 
 
       // After 6:30pm, shut off the cameras and Ubiquiti-always-on setting. Once an hour in case we want to manually turn on.
-      if ( (hour() == 18)
+      // God mode skips this — cameras stay on until goToSleep().
+      if (not camStatus.godMode
+      and (hour() == 18)
       and ((minute() > 25) or (minute() < 30)) ) {
         keepUbiquitiOn = false;
         EEPROM.update(eeKeepUbiOn, false);
@@ -1994,7 +1994,7 @@ String getWeatherString() {
   if (camStatus.NorthDesireOn)  { weatherString += String("N"); }
   if (camStatus.BrainDesireOn)  { weatherString += String("B"); }
   if (camStatus.badWeather)  { weatherString += String("X"); }
-  if (camStatus.scheduleOnly) { weatherString += String("O"); }
+  if (camStatus.godMode) { weatherString += String("O"); }
   if (telnetSeconds) {
     weatherString += String("T=");
     weatherString += String(telnetSeconds);

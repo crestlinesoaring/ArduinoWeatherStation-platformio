@@ -329,6 +329,10 @@ void goToSleep(){
 
   keepUbiquitiOn = false;
   EEPROM.update(eeKeepUbiOn, false);
+  if (camStatus.godMode) {
+    camStatus.godMode = false;
+    EEPROM.put(eeCamStatus, camStatus);
+  }
   disableWifi();
   disableEthernet();
   disableCamBrain();
