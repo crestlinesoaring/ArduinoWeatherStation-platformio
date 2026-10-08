@@ -208,4 +208,34 @@ float ws85BatVoltage() {
   return ws85BatVolts;
 }
 
+void ws85LogVoltage() {
+  Serial.print(F("[WS85] "));
+  if (ws85HaveCapV) {
+    Serial.print(F("cap="));
+    Serial.print(ws85CapVolts, 2);
+    Serial.print(F(" V"));
+  } else {
+    Serial.print(F("cap=n/a"));
+  }
+  Serial.print(F("  "));
+  if (ws85HaveBatV) {
+    Serial.print(F("bat="));
+    Serial.print(ws85BatVolts, 2);
+    Serial.print(F(" V"));
+  } else {
+    Serial.print(F("bat=n/a"));
+  }
+  Serial.println();
+}
+
+void ws85LogVoltageAtBoot() {
+  unsigned long t0 = millis();
+  while (millis() - t0 < 3000) {
+    ws85Poll();
+    wdt_reset();
+    if (ws85HaveCapV || ws85HaveBatV) break;
+  }
+  ws85LogVoltage();
+}
+
 #endif

@@ -879,6 +879,10 @@ void setup()
     if (telnet_at_startup) Serial.println("PIN_TELNET_AT_STARTUP is set (pulled to GND).");
   #endif
 
+#ifdef ANEMO_WS85
+  ws85LogVoltageAtBoot();
+#endif
+
   if (telnet_at_startup){
     Serial.println("Standard measurement loop will be suspended.");
     enableWifi();
@@ -1355,6 +1359,12 @@ void loop()
           } else {
             ethConnFails++;
           }
+        }
+#endif
+#ifdef ANEMO_WS85
+        if (uploadThisMinute) {
+          ws85Poll();
+          ws85LogVoltage();
         }
 #endif
         if (!uploadThisMinute) {

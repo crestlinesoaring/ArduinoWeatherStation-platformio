@@ -26,6 +26,8 @@ float ws85TempC();
 float ws85RainMm();
 float ws85CapVoltage();
 float ws85BatVoltage();
+void ws85LogVoltage();
+void ws85LogVoltageAtBoot();
 // all connectors (relay, FET, BME etc) are compatible to old base, just the pin assignments of respected functions were changed.
 // Only headers POWER (Vin, GND etc up to SPARE), PWMH (8,9 etc up to SCL), and some of XIO (Extened I/O) are needed to connect GB to Mega
 // see excel sheet for details
