@@ -25,6 +25,7 @@ static bool ws85HaveRain = false;
 static bool ws85HaveCapV = false;
 static bool ws85HaveBatV = false;
 static bool ws85FrameReady = false;
+static unsigned long ws85SerialEvents = 0;
 
 float ws85ParseVolts(const String &val) {
   String s = val;
@@ -49,6 +50,7 @@ void ws85ResetFrame() {
 void ws85MarkFrameReady() {
   if (!ws85HaveDir || !ws85HaveSpeed) return;
   ws85FrameReady = true;
+  ws85SerialEvents++;
 }
 
 #ifdef WS85_SERIAL_LOG
@@ -236,6 +238,17 @@ void ws85LogVoltageAtBoot() {
     if (ws85HaveCapV || ws85HaveBatV) break;
   }
   ws85LogVoltage();
+}
+
+void ws85LogUploadSessionSummary() {
+  ws85Poll();
+  ws85LogVoltage();
+  Serial.print(F("[WS85] serial events since last upload: "));
+  Serial.println(ws85SerialEvents);
+  if (ws85SerialEvents == 0) {
+    Serial.println(F("[WS85] WARNING: no serial events since last upload"));
+  }
+  ws85SerialEvents = 0;
 }
 
 #endif

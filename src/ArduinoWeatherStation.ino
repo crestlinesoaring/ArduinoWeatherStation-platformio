@@ -1363,8 +1363,7 @@ void loop()
 #endif
 #ifdef ANEMO_WS85
         if (uploadThisMinute) {
-          ws85Poll();
-          ws85LogVoltage();
+          ws85LogUploadSessionSummary();
         }
 #endif
         if (!uploadThisMinute) {
