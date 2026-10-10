@@ -562,7 +562,7 @@ void yield()
  ***********************************************************/
 void setup()
 {
-  Serial.begin(38400);
+  Serial.begin(9600);
   wxLogSection(F("BOOT"));
   Serial.print(startupMessage); // Set at the top of sketch to make it easier to find & update
   Serial.print(F(" git="));
