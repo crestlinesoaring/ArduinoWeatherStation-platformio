@@ -2057,6 +2057,17 @@ String getWeatherString() {
     weatherString += String(minute(reportWatchdog));
   }
 
+#ifndef BENCH_MODE
+  if (wxIsLastUploadBeforeSleep()) {
+    weatherString += F(",SLEEP@");
+    if (ina219b_battery_volts < battery_critical_voltage) {
+      weatherString += F("LOW");
+    } else {
+      weatherString += strMinutesToHHMM(wxSleepMinutesAfterMidnight());
+    }
+  }
+#endif
+
   // Tack on a ,R if we've rebooted to make it easier to spot them
   if(justRestarted) {
     weatherString += ",R";

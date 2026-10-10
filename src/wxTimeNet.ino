@@ -1028,6 +1028,32 @@ String getTimeWithZeros() {
 
 }
 
+// Minutes after midnight when the station will sleep (sunset + post-sunset offset).
+int wxSleepMinutesAfterMidnight() {
+  return sunset + minutesAfterSunset;
+}
+
+// True when this minute's weather line should be tagged before the next sleep.
+bool wxIsLastUploadBeforeSleep() {
+#ifndef BENCH_MODE
+#ifdef DONT_SLEEP
+  if (wxDontSleep) return false;
+#endif
+  if (ina219b_battery_volts < battery_critical_voltage) {
+    return true;
+  }
+  int m = hour() * 60 + minute();
+  int sleepAt = wxSleepMinutesAfterMidnight();
+  if (m > sleepAt) {
+    return false;
+  }
+  int lastUpload = (sleepAt / 5) * 5;
+  return m == lastUpload;
+#else
+  return false;
+#endif
+}
+
 // Given minutes-after-midnight (like int sunset or int sunrise), turn that into military HH:MM with padded zeros
 String strMinutesToHHMM(int M) {
 
