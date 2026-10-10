@@ -515,15 +515,11 @@ void enableEthernet(bool quiet) {
     Serial.print(F("[NET] ethernet up  IP "));
     Serial.println(Ethernet.localIP());
   }
-  if (resolveCssServerIp()) {
-    if (!quiet) {
-      Serial.print(F("[NET] DNS "));
-      Serial.print(wxSiteName);
-      Serial.print(F(" -> "));
-      Serial.println(cssServerIp);
-    }
-  } else if (!quiet) {
-    wxLogTag(F("NET"), F("DNS lookup failed (will retry on upload)"));
+  if (resolveCssServerIp() && !quiet) {
+    Serial.print(F("[NET] DNS "));
+    Serial.print(wxSiteName);
+    Serial.print(F(" -> "));
+    Serial.println(cssServerIp);
   }
   W5100.setRetransmissionTime(0x07D0);            // reduce wait
   W5100.setRetransmissionCount(4);
