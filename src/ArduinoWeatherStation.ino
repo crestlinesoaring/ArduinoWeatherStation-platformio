@@ -341,7 +341,7 @@ float ina219a_solar_volts;
 float ina219a_solar_ma;
 float ina219a_solar_MMAcurrentSum;
 float ina219a_solar_MMAcurrentAvg;
-float ina219a_solar_MMAvoltSum;
+float ina219a_solar_MMAvoltSum = 14.0*ina219a_solar_MMAcount ;  // Preload to 14.0 volts so the moving average doesn't take so long
 float ina219a_solar_MMAvoltAvg;
 
 
@@ -350,7 +350,7 @@ float ina219b_battery_volts;
 float ina219b_battery_ma;
 float ina219b_battery_MMAcurrentSum;
 float ina219b_battery_MMAcurrentAvg;
-float ina219b_battery_MMAvoltSum;
+float ina219b_battery_MMAvoltSum = 14.0*ina219b_battery_MMAcount;  // Preload to 14.0 volts so the moving average doesn't take so long
 float ina219b_battery_MMAvoltAvg;
 
 
@@ -661,7 +661,6 @@ void setup()
   ina219b_battery.begin();
   ina219b_battery.setCalibration_16V_5A();
   Serial.print(micros() - usTemp); Serial.println("us.");
-  seedIna219MmaFromSensors();
 
   //Setup BME280 temperatue and humidity sensor A
   Serial.print(F("  BME280a external: status 0x")); usTemp = micros(); //jjjexternal 
