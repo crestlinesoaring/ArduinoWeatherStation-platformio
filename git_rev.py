@@ -60,3 +60,7 @@ def write_version_h(info):
 Import("env")
 
 write_version_h(get_version_info())
+
+# Match USB Serial.begin() to this env's monitor_speed (platformio.ini).
+monitor_speed = int(env.GetProjectOption("monitor_speed", "9600"))
+env.Append(CPPDEFINES=[("SERIAL_MONITOR_BAUD", monitor_speed)])

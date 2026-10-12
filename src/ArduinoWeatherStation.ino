@@ -562,7 +562,10 @@ void yield()
  ***********************************************************/
 void setup()
 {
-  Serial.begin(9600);
+#ifndef SERIAL_MONITOR_BAUD
+#define SERIAL_MONITOR_BAUD 9600
+#endif
+  Serial.begin(SERIAL_MONITOR_BAUD);
   wxLogSection(F("BOOT"));
   Serial.print(startupMessage); // Set at the top of sketch to make it easier to find & update
   Serial.print(F(" git="));
