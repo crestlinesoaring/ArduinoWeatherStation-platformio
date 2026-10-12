@@ -3,6 +3,11 @@
 
 #include <Arduino.h>
 
+// Set to 1 to poll the charge controller on Serial2 each second (Modbus).
+#ifndef RENOGY_POLLING_ENABLED
+#define RENOGY_POLLING_ENABLED 0
+#endif
+
 extern float renogy_solar_volts;
 extern float renogy_solar_amps;
 extern bool renogy_connected;
