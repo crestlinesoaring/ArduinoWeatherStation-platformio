@@ -654,11 +654,13 @@ void setup()
   //Setup INA219 voltage and current sensor(s)
   Serial.print(F("  INA219a solar: ")); usTemp = micros(); //jjjsolar
   ina219a_solar.begin();
+  Wire.setClock(400000); // 400 kHz I2C for the INA219 chips
   ina219a_solar.setCalibration_32V_5A(); //jjjk INA couldn't get the public method going (32V_5A)
   Serial.print(micros() - usTemp); Serial.println("us.");
 
   Serial.print(F("  INA219b battery: ")); usTemp = micros();
   ina219b_battery.begin();
+  Wire.setClock(400000); // 400 kHz I2C for the INA219 chips
   ina219b_battery.setCalibration_16V_5A();
   Serial.print(micros() - usTemp); Serial.println("us.");
 
@@ -683,6 +685,11 @@ void setup()
   bme280b.settings.humidOverSample = 1; //oversample rate: 1-5 equate to 1, 2, 4, 8, 16
   Serial.print(bme280b.begin(), HEX);
   Serial.print(F(", took ")); Serial.print(micros() - usTemp); Serial.println(F("us."));
+
+  // BME280::begin() calls Wire.begin(), which resets the I2C bus clock back to
+  // 100 kHz. Re-apply 400 kHz after the last Wire.begin() so the INA219 chips
+  // (and the rest of the bus) actually run at 400 kHz during operation.
+  Wire.setClock(400000);
 
   renogyInit();
   Serial.println(F("  Renogy CC on Serial2 @ 9600 baud, modbus addr 255"));
