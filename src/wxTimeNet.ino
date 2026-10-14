@@ -402,7 +402,8 @@ bool checkEthIncomingData() {
               incomingClient.print(F("  Battery drain minutes: "));  incomingClient.print(String(battDrainMinutes));
                 incomingClient.print(F(", mAm: "));                    incomingClient.print(String(battDrainmA));
                 incomingClient.print(F(", mAh = "));                   incomingClient.println(String(battDrainmA / 60));
-              incomingClient.print(F("  ina219_MMA loops: "));       incomingClient.println(String(ina219a_solar_MMAloops));
+              incomingClient.print(F("  INA219 MMA last min: "));    incomingClient.print(ina219_MMA_hz, 1);
+              incomingClient.print(F(" Hz, this min so far: "));   incomingClient.println(String(ina219a_solar_MMAloops));
               incomingClient.print(F("  Temp internal: "));          incomingClient.println(String(bme280b.readTempC()));
               incomingClient.print(F("  Humidity int:  "));          incomingClient.println(String(bme280b.readFloatHumidity()));
               incomingClient.print(F("  Sunrise / Wake: "));

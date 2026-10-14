@@ -362,6 +362,7 @@ float ina219_MMAtemp;
 float voltsLowestSeen = 20.0;
 unsigned int ina219a_solar_MMAmillis = 0;
 unsigned int ina219a_solar_MMAloops = 0;
+float ina219_MMA_hz = 0;
 
 // volatiles are subject to modification by IRQs
 // jjj 22a volatile unsigned long raintime, rainlast, raininterval, rain;
@@ -1251,7 +1252,7 @@ void loop()
         tempWeatherString = getWeatherString();
         Serial.print(F("[WX] "));
         Serial.println(tempWeatherString);
-        ina219a_solar_MMAloops = 0;  //Reset to zero after upload (even if not successful)
+        finalizeInaMmaMinute();
 
         bool uploadThisMinute = (minute() % 5 == 0) and (millis() > 180000);
         if (uploadThisMinute) {
