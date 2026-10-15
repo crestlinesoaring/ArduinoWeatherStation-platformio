@@ -18,16 +18,6 @@ void finalizeWindSpeedMinute() {
   windSpeedMinuteCount = 0;
 }
 
-void finalizeInaMmaMinute() {
-  ina219_MMA_hz = ina219a_solar_MMAloops / 60.0f;
-  Serial.print(F("[INA] MMA samples/min: "));
-  Serial.print(ina219a_solar_MMAloops);
-  Serial.print(F(", rate: "));
-  Serial.print(ina219_MMA_hz, 1);
-  Serial.println(F(" Hz"));
-  ina219a_solar_MMAloops = 0;
-}
-
 // Block for ms milliseconds, resetting the watchdog about every 100 ms.
 void delayWithWdt(unsigned long ms)
 {
