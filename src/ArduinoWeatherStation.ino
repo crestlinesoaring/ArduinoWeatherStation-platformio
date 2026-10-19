@@ -40,6 +40,7 @@
 #include <SdFat.h>           // SdFat 1.0.14 (Bill Greiman). Not the Adafruit SdFat fork.
 #include <SparkFunBME280.h>  // SparkFun BME280 1.1.0 (uses I2C_MODE, not kSfeI2CMode from 2.x).
 #include <Adafruit_INA219_5A.h>  // Adafruit INA219_5A 1.0.0 (crestlinesoaring fork). Customized for 5 A.
+#include "ina219.h"
 
 // Other header files, included in the sketch-folder. Work out of the box, no action required.
 #include "pins.h"      // Header file for hardware dependent variables (must precede Marshall.h for BENCH_MODE)
@@ -335,34 +336,12 @@ const float camSolarMaWeak = 250.0f;         // solar cannot support camera load
 const int   camSolarDeficitMinutes = 12;       // serious drain + weak solar for this long → shutoff
 const int   camGodModeStartHour = 10;         // god mode: auto-on at 10:00; stays on until goToSleep()
 
-//INA 219 volt & current sensor. MMA means Modified Moving Average. PWM charging requires some smoothing.
-const int ina219a_solar_MMAcount = 512;
-float ina219a_solar_volts;
+// INA219: hardware 128-sample average per read; simple mean of reads each minute (see ina219.ino).
+float ina219a_solar_volts = 14.0f;
 float ina219a_solar_ma;
-float ina219a_solar_MMAcurrentSum;
-float ina219a_solar_MMAcurrentAvg;
-float ina219a_solar_MMAvoltSum = 14.0*ina219a_solar_MMAcount ;  // Preload to 14.0 volts so the moving average doesn't take so long
-float ina219a_solar_MMAvoltAvg;
-
-
-const int ina219b_battery_MMAcount = 512;
-float ina219b_battery_volts;
+float ina219b_battery_volts = 14.0f;
 float ina219b_battery_ma;
-float ina219b_battery_MMAcurrentSum;
-float ina219b_battery_MMAcurrentAvg;
-float ina219b_battery_MMAvoltSum = 14.0*ina219b_battery_MMAcount;  // Preload to 14.0 volts so the moving average doesn't take so long
-float ina219b_battery_MMAvoltAvg;
-
-
-float shuntvoltage = 0;
-float busvoltage = 0;
-float current_mA = 0;
-float loadvoltage = 0;
-float ina219_MMAtemp;
 float voltsLowestSeen = 20.0;
-unsigned int ina219a_solar_MMAmillis = 0;
-unsigned int ina219a_solar_MMAloops = 0;
-float ina219_MMA_hz = 0;
 
 // volatiles are subject to modification by IRQs
 // jjj 22a volatile unsigned long raintime, rainlast, raininterval, rain;
@@ -657,13 +636,21 @@ void setup()
   ina219a_solar.begin();
   Wire.setClock(400000); // 400 kHz I2C for the INA219 chips
   ina219a_solar.setCalibration_32V_5A(); //jjjk INA couldn't get the public method going (32V_5A)
+  ina219a_solar.setAmpAverage();
+  ina219a_solar.setVoltAverage();
   Serial.print(micros() - usTemp); Serial.println("us.");
 
   Serial.print(F("  INA219b battery: ")); usTemp = micros();
   ina219b_battery.begin();
   Wire.setClock(400000); // 400 kHz I2C for the INA219 chips
   ina219b_battery.setCalibration_16V_5A();
+  ina219b_battery.setAmpAverage();
+  ina219b_battery.setVoltAverage();
   Serial.print(micros() - usTemp); Serial.println("us.");
+  Serial.print(F("  INA219 read interval: "));
+  Serial.print(INA_READ_INTERVAL_SEC);
+  Serial.println(F(" s (128x HW avg per read)"));
+  delay(180); // first 128x conversion complete (see ina_avg_read.ino)
 
   //Setup BME280 temperatue and humidity sensor A
   Serial.print(F("  BME280a external: status 0x")); usTemp = micros(); //jjjexternal 
@@ -692,8 +679,10 @@ void setup()
   // (and the rest of the bus) actually run at 400 kHz during operation.
   Wire.setClock(400000);
 
+  #if RENOGY_POLLING_ENABLED
   renogyInit();
   Serial.println(F("  Renogy CC on Serial2 @ 9600 baud, modbus addr 255"));
+  #endif
 
   seconds = 0;
   lastSecond = millis();
@@ -1021,6 +1010,7 @@ void loop()
 
     if(seconds > 59)
     {
+      finalizeInaMinute();
       seconds = seconds % 60; // sometimes the loop takes longer than 1 second.
       if(++minutes > 59) 
       {
@@ -1252,7 +1242,6 @@ void loop()
         tempWeatherString = getWeatherString();
         Serial.print(F("[WX] "));
         Serial.println(tempWeatherString);
-        finalizeInaMmaMinute();
 
         bool uploadThisMinute = (minute() % 5 == 0) and (millis() > 180000);
         if (uploadThisMinute) {
@@ -1396,71 +1385,7 @@ void loop()
   } // END of ONCE A SECOND loop (every 1000ms)
 
 
-  //INA 219 averaging. Gets about 60-70 readings a second at time of writing using a Modified Moving Average.
-  if (ina219a_solar_MMAmillis + 12 < millis()) { //every 12 ms
-
-    float ina219a_solar_polarity = 1.0;
-  
-    shuntvoltage = ina219a_solar.getShuntVoltage_mV();
-    busvoltage = ina219a_solar.getBusVoltage_V();
-    ina219_MMAtemp = busvoltage + (shuntvoltage / 1000.0);
-    // flip the reported polarity if needed, one of the brain boxes is wired backwards.
-    if (ina219_MMAtemp < 0.0) {
-      ina219_MMAtemp = ina219_MMAtemp * -1.0;
-      ina219a_solar_polarity = -1.0;
-    }
-
-    ina219a_solar_MMAvoltSum -= ina219a_solar_MMAvoltAvg;
-    ina219a_solar_MMAvoltSum += ina219_MMAtemp;
-    ina219a_solar_MMAvoltAvg  = ina219a_solar_MMAvoltSum / ina219a_solar_MMAcount;
-    #ifdef SIMULATE_INA219A_SOLAR_VOLTS
-    ina219a_solar_volts = SIMULATE_INA219A_SOLAR_VOLTS;    
-    #else
-    ina219a_solar_volts = ina219a_solar_MMAvoltAvg;
-    #endif
-
-    ina219_MMAtemp = ina219a_solar.getCurrent_mA() * ina219a_solar_polarity;  
-    ina219a_solar_MMAcurrentSum -= ina219a_solar_MMAcurrentAvg;
-    ina219a_solar_MMAcurrentSum += ina219_MMAtemp;
-    ina219a_solar_MMAcurrentAvg  = ina219a_solar_MMAcurrentSum / ina219a_solar_MMAcount;
-    #ifdef SIMULATE_INA219A_SOLAR_MA
-    ina219a_solar_ma = SIMULATE_INA219A_SOLAR_MA;
-    #else
-    ina219a_solar_ma = ina219a_solar_MMAcurrentAvg; //jjj changed library _5
-    #endif
-
-    ina219a_solar_MMAloops++;
-    //Battery's INA219. Battery absorbs most of the PWM but amperage still fluctuates so dampen this heavily too.
-
-    shuntvoltage = ina219b_battery.getShuntVoltage_mV();
-    busvoltage = ina219b_battery.getBusVoltage_V();
-    ina219_MMAtemp = busvoltage + (shuntvoltage / 1000.0);
-
-    ina219b_battery_MMAvoltSum -= ina219b_battery_MMAvoltAvg;
-    ina219b_battery_MMAvoltSum += ina219_MMAtemp;
-    ina219b_battery_MMAvoltAvg  = ina219b_battery_MMAvoltSum / ina219b_battery_MMAcount;
-    #ifdef SIMULATE_INA219B_BATTERY_VOLTS
-    ina219b_battery_volts = SIMULATE_INA219B_BATTERY_VOLTS;
-    #else
-    ina219b_battery_volts = ina219b_battery_MMAvoltAvg;
-    #endif
-    if ( (ina219b_battery_volts < voltsLowestSeen)
-     and (ina219b_battery_volts > 2.0) ) {
-      voltsLowestSeen = ina219b_battery_volts;
-    }
-    
-
-    ina219_MMAtemp = ina219b_battery.getCurrent_mA() + battery_ma_offset;  
-    ina219b_battery_MMAcurrentSum -= ina219b_battery_MMAcurrentAvg;
-    ina219b_battery_MMAcurrentSum += ina219_MMAtemp;
-    ina219b_battery_MMAcurrentAvg  = ina219b_battery_MMAcurrentSum / ina219b_battery_MMAcount;
-    #ifdef SIMULATE_INA219B_BATTERY_MA
-    ina219b_battery_ma = SIMULATE_INA219B_BATTERY_MA;
-    #else
-    ina219b_battery_ma = ina219b_battery_MMAcurrentAvg ; //jjjina
-    #endif
-  }
-
+  ina219Poll();
 
   loopCounter++;
 

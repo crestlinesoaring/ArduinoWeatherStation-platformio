@@ -172,14 +172,54 @@
     <header>
       <h1>Camera Power Management</h1>
       <p>Low power / high battery drain logic &mdash; <code>awx-pio</code> weather station firmware</p>
-      <p class="source">Primary source: <code>src/ArduinoWeatherStation.ino</code> (once-per-minute loop) &bull; helpers in <code>src/wxUtilities.ino</code>, <code>src/wxTimeNet.ino</code></p>
+      <p class="source">Primary source: <code>src/ArduinoWeatherStation.ino</code> (runtime once-per-minute block) &bull; INA averaging: <code>src/ina219.ino</code>, <code>src/ina219.h</code> &bull; helpers: <code>src/wxUtilities.ino</code>, <code>src/wxTimeNet.ino</code></p>
     </header>
+
+    <section>
+      <h2>INA219 readings (inputs to camera logic)</h2>
+      <p>
+        Camera enable/shutoff uses the global values <code>ina219a_solar_ma</code>, <code>ina219a_solar_volts</code>,
+        <code>ina219b_battery_ma</code>, and <code>ina219b_battery_volts</code>. These come from
+        <code>ina219Poll()</code> and <code>finalizeInaMinute()</code> in <code>src/ina219.ino</code> (not the Renogy
+        fields in the weather string).
+      </p>
+      <ul>
+        <li>
+          <strong>Sample rate:</strong> <code>ina219Poll()</code> runs every
+          <code>INA_READ_INTERVAL_SEC</code> seconds (default <strong>1</strong>; override in
+          <code>platformio.ini</code> with <code>-D INA_READ_INTERVAL_SEC=2</code>).
+        </li>
+        <li>
+          <strong>Per read:</strong> each INA219 conversion uses the chip&rsquo;s <strong>128-sample hardware average</strong>
+          (<code>setAmpAverage()</code> / <code>setVoltAverage()</code> in <code>setup()</code>).
+        </li>
+        <li>
+          <strong>Per minute:</strong> samples are accumulated into running sums; globals are updated as the
+          <strong>arithmetic mean of all samples so far in the current runtime minute</strong>.
+        </li>
+        <li>
+          <strong>End of runtime minute:</strong> when <code>seconds &gt; 59</code> in <code>loop()</code>,
+          <code>finalizeInaMinute()</code> runs <strong>first</strong>, recomputes that mean, logs sample count and
+          effective Hz, then clears sums for the next minute.
+        </li>
+        <li>
+          <strong>Battery current offset:</strong> every battery sample adds <code>battery_ma_offset</code>
+          (+30&nbsp;mA) before averaging.
+        </li>
+      </ul>
+      <div class="callout callout-warn">
+        <strong>Camera decisions use the completed runtime-minute average</strong> (values left by
+        <code>finalizeInaMinute()</code> in the same <code>seconds &gt; 59</code> block). Uploaded weather lines on
+        RTC minute rollovers call <code>getWeatherString()</code> without finalizing there, so fields 15&ndash;18 in a
+        log row can reflect the <em>in-progress</em> minute mean until the next runtime finalize.
+      </div>
+    </section>
 
     <section>
       <h2>Overview</h2>
       <p>
-        Camera power logic runs <strong>once per minute</strong> in the main loop, using INA219 sensor readings for
-        <strong>battery current/voltage</strong> (<code>ina219b_*</code>) and <strong>solar panel</strong> (<code>ina219a_*</code>).
+        Camera power logic runs <strong>once per runtime minute</strong> (when <code>seconds &gt; 59</code>), immediately
+        after <code>finalizeInaMinute()</code>, using the INA219 minute-mean values above.
       </p>
       <p>Three cameras are managed:</p>
       <ul>
@@ -194,8 +234,18 @@
     </section>
 
     <section>
-      <h2><span class="badge badge-on">On</span> Turning Cameras On &mdash; Daytime, Good Power</h2>
-      <p>Cameras are <strong>automatically enabled</strong> only when <em>all</em> of the following conditions are met:</p>
+      <h2><span class="badge badge-on">On</span> Turning Cameras On</h2>
+
+      <h3>Path A &mdash; God mode (telnet)</h3>
+      <p>
+        When <code>camStatus.godMode</code> is set (telnet), auto-enable runs from
+        <code>hour() &gt;= camGodModeStartHour</code> (default <strong>10:00</strong>) until night
+        <code>goToSleep()</code>. Requires <code>not camStatus.badWeather</code>.
+        <strong>No solar or <code>battDrainmA</code> checks.</strong> Weather flag <code>O</code> in field 20 when active.
+      </p>
+
+      <h3>Path B &mdash; Normal daytime, good power</h3>
+      <p>When god mode is off, cameras are <strong>automatically enabled</strong> only when <em>all</em> of the following are met (minute-mean INA values):</p>
       <ol>
         <li>
           <strong>Time window:</strong> after sunrise, and before <code>sunset &minus; 120 minutes</code>
@@ -213,10 +263,17 @@
           (set manually via telnet command <code>X</code>).
         </li>
         <li>
-          <strong>Drain budget OK:</strong> <code>battDrainmA &gt; &minus;3000</code>
-          (~50 mAh net deficit since boot; was &minus;500 / ~8 mAh).
+          <strong>Drain budget OK:</strong> <code>battDrainmA &gt; camDrainmAAllowTurnOn</code>
+          (&gt; &minus;3000&nbsp;mA&middot;min, ~50&nbsp;mAh net deficit since boot).
+          Uses the integral <strong>before</strong> this minute&rsquo;s
+          <code>battDrainmA += ina219b_battery_ma</code> (see below).
         </li>
       </ol>
+      <p>
+        <strong>Turn-on does not use instantaneous battery amps.</strong> Solar gates use minute-mean
+        <code>ina219a_*</code>; the battery gate is cumulative <code>battDrainmA</code> only.
+        Either solar branch can qualify alone (e.g. <code>ina219a_solar_volts &gt; 17.5</code> with low panel current).
+      </p>
 
       <h3>What gets enabled</h3>
       <ul>
@@ -234,10 +291,10 @@
     <section>
       <h2><span class="badge badge-off">Off</span> Turning Cameras Off &mdash; Battery Drain</h2>
       <p>
-        Daytime shutoff requires <strong>sustained serious deficit</strong>, not every brief blip below zero.
-        INA219 readings include a +30&nbsp;mA offset; small negative values are often noise, not real drain.
+        In normal mode (not god mode), daytime shutoff requires <strong>sustained serious deficit</strong>, not every brief blip below zero.
+        Values are the <strong>runtime minute mean</strong> from <code>finalizeInaMinute()</code> (includes +30&nbsp;mA offset on battery current).
         A minute counts as <em>serious drain</em> only when
-        <code>ina219b_battery_ma &lt; &minus;120</code> (<code>camDrainMaThreshold</code>).
+        <code>ina219b_battery_ma &lt; camDrainMaThreshold</code> (&lt; &minus;120&nbsp;mA).
       </p>
 
       <table>
@@ -315,7 +372,17 @@
         <li>Decrement <code>battDrainMinutes</code> by 1 if &gt; 0 (slow decay instead of instant reset)</li>
       </ul>
 
-      <p>Regardless of state, each minute: <code>battDrainmA += ina219b_battery_ma</code></p>
+      <h3>Order each runtime minute (<code>seconds &gt; 59</code>)</h3>
+      <ol>
+        <li><code>finalizeInaMinute()</code> &mdash; freeze minute-mean <code>ina219_*</code> globals</li>
+        <li>Evaluate <code>shouldAutoEnableCams</code> (uses <code>battDrainmA</code> as accumulated through <em>previous</em> minutes)</li>
+        <li>Drain shutoff logic (god mode skips this block)</li>
+        <li><code>battDrainmA += ina219b_battery_ma</code> &mdash; add this minute&rsquo;s mean battery mA (mA&middot;min); resets only on reboot</li>
+      </ol>
+      <p>
+        Weather upload field 22 reports <code>battDrainmA / 60</code> as mAh. Field 21 reports
+        <code>battDrainMinutes</code> only when &gt; 0.
+      </p>
     </section>
 
     <section>
@@ -344,6 +411,7 @@
         <li><code>B</code> / <code>S</code> / <code>N</code> &mdash; toggle individual cameras</li>
         <li><code>a</code> &mdash; turn all cameras off</li>
         <li><code>X</code> &mdash; set/clear bad-weather flag (blocks auto turn-on)</li>
+        <li>God mode toggle &mdash; solar/battery gating bypassed for auto on (see telnet help in <code>wxTimeNet.ino</code>)</li>
       </ul>
     </section>
 
@@ -351,7 +419,7 @@
       <h2><span class="badge badge-info">EEPROM</span> Persistence</h2>
       <p>
         Camera desired on/off state is stored in EEPROM via the <code>camStatus</code> struct
-        (<code>SouthDesireOn</code>, <code>NorthDesireOn</code>, <code>BrainDesireOn</code>, <code>badWeather</code>)
+        (<code>SouthDesireOn</code>, <code>NorthDesireOn</code>, <code>BrainDesireOn</code>, <code>badWeather</code>, <code>godMode</code>)
         so state survives reboots.
       </p>
       <p>On boot, any camera marked "desired on" is re-powered. The <code>keepUbiquitiOn</code> flag is also restored from EEPROM.</p>
@@ -359,12 +427,17 @@
 
     <section>
       <h2>Decision Flow (simplified)</h2>
-      <div class="flow">Every minute
+      <div class="flow">Each runtime minute (seconds &gt; 59)
   │
-  ├─ Daytime + good solar + not badWeather + battDrainmA &gt; -3000?
-  │     YES → Enable South/North cameras + continuous WiFi
+  ├─ finalizeInaMinute() → minute-mean ina219a_* / ina219b_*
   │
-  ├─ Serious discharge (ina219b_battery_ma &lt; -120)?
+  ├─ God mode AND hour &gt;= 10 AND not badWeather?
+  │     YES → Enable South/North (+ WiFi keep-on)
+  │
+  ├─ Else: daytime window + solar OK + not badWeather + battDrainmA &gt; -3000?
+  │     YES → Enable South/North (+ WiFi keep-on)
+  │
+  ├─ (Not god mode) Serious discharge (minute-mean ina219b_battery_ma &lt; -120)?
   │     YES → Increment battDrainMinutes
   │           ├─ 15+ serious-drain mins  OR  battDrainmA &lt; -18000
   │           │  OR  (volts &lt; camLowVoltage AND 10+ serious mins)
@@ -373,6 +446,8 @@
   │           └─ NO  → Keep tracking
   │     CHARGING (ma &gt; 50 OR solar &gt; 16V) → Reset/decrement drain counters
   │     NEUTRAL → Decrement battDrainMinutes (slow decay)
+  │
+  ├─ battDrainmA += ina219b_battery_ma (minute mean)
   │
   ├─ Hour == 18 (6 PM)? → Disable all cameras
   │
@@ -390,12 +465,13 @@
       </p>
       <p>
         Drain metrics (<code>battDrainMinutes</code>, <code>battDrainmA / 60</code> as mAh) are also
-        included in the weather upload string for remote monitoring.
+        included in the weather upload string for remote monitoring. Telnet status can show
+        <code>ina219_avgReadHz</code> and samples per minute for the last finalized INA minute.
       </p>
     </section>
 
     <footer>
-      Generated from firmware analysis &mdash; awx-pio weather station
+      awx-pio weather station &mdash; keep in sync with <code>src/ina219.ino</code> and camera block in <code>ArduinoWeatherStation.ino</code>
     </footer>
 
   </div>
