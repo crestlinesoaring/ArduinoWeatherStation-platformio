@@ -679,8 +679,10 @@ void setup()
   // (and the rest of the bus) actually run at 400 kHz during operation.
   Wire.setClock(400000);
 
+  #if RENOGY_POLLING_ENABLED
   renogyInit();
   Serial.println(F("  Renogy CC on Serial2 @ 9600 baud, modbus addr 255"));
+  #endif
 
   seconds = 0;
   lastSecond = millis();

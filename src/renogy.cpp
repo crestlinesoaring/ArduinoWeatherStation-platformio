@@ -28,10 +28,8 @@ static bool renogyReadOnce(float &volts, float &amps) {
 }
 
 void renogyInit() {
-#if RENOGY_POLLING_ENABLED
   Serial2.begin(9600);
   renogyNode.begin(RENOGY_MODBUS_ADDRESS, Serial2);
-#endif
 }
 
 void renogyPoll() {
