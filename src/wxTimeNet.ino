@@ -690,7 +690,7 @@ void enableWifi(bool quiet) {
   pinMode(PIN_UBIQUITI_POWER, OUTPUT);                 // prepares Ubiquiti power control pin
   digitalWrite(PIN_UBIQUITI_POWER, UBIQUITI_ON);  // turns Ubiquiti on
   wifiStartTime = millis();
-  // Rest of enabling happens in loop() where we check that it's been wifiStartupDelay seconds (currently 55, may be out of date)
+  // Rest of enabling happens in loop() after wifiStartupDelay seconds (50s from :10 -> :00).
 }
 
 void waitForWifi() {
@@ -701,7 +701,7 @@ void waitForWifi() {
       Serial.print((millis() - wifiStartTime) / 1000,10);
       Serial.println(F("s"));
     }
-    if ((millis() - wifiStartTime) / 1000 > wifiStartupDelay) {
+    if ((millis() - wifiStartTime) / 1000 >= wifiStartupDelay) {
       wxLogTag(F("NET"), F("wifi ready"));
       wifiStartTime = 0;
       wifiEnabled = true;
