@@ -58,7 +58,7 @@ const bool   enableEthDump2Serial = false;  // Set to false to suppress spitting
 const String startupMessage = "UM Weather Station (ver" VERSION_ID ")";
 const byte wifiStartupDelay = 50; // Seconds to wait for Ubiquity Wifi startup (mm:04:10 -> mm:05:00)
 const byte wifiStartSecond = 10; // Power on Ubiquiti at second 10 of the pre-upload minute (e.g. :04:10)
-const byte ethStartSecond = 55;  // Power on Ethernet at second 55 (EthStartupDelay runs until upload at :00)
+const byte ethStartSecond = 55;  // Power on Ethernet at second 55 of the pre-upload minute
 const int EthStartupDelay = 5000; // Milliseconds to wait for Ethernet Shield to establish connection before continuing without sending. Used by enableEthernet() in wxTimeNet. Should be larger than 5 sec
 int minutesBeforeSunrise = 70;              // Minutes before sunrise to wake and start sending data. Should consider additional time because reboot happens every hour only -> might miss the sunrise.
 int minutesAfterSunset = 30;                // Minutes after sunset to stay awake before sleep().
@@ -1249,57 +1249,8 @@ void loop()
         if (uploadThisMinute) {
           // Cache this minute before upload so 1-5 and 6-10 batches include the boundary minute.
           saveWeatherToCache(tempWeatherString);
+          runFiveMinuteUpload(uploadStatus);
         }
-
-#ifdef BENCH_MODE  // BENCH_MODE - upload over Ethernet every 5 minutes, no Ubiquiti wait
-        if (uploadThisMinute) {
-          if (not ethEnabled) enableEthernet();
-          if (ethEnabled) {
-            msTemp = millis();
-            bool wasJustRestarted = justRestarted;
-            uploadCachedWeather(minute(), uploadStatus);
-            if (wasJustRestarted) {
-              justRestarted = false;
-            }
-
-            if (uploadStatus==0) {
-              if (reportWatchdog) {
-                Serial.println(F("  Clearing watchdog EEPROM flag"));
-                reportWatchdog = 0;
-                EEPROM.update(eeWatchdog, 0);
-              }
-              ethLastFailureCode = 0;
-            }
-
-            #ifndef SIMULATE_RTC
-              if (rtc_available) {
-                if (!rtc_got_update_from_ntp) {
-                  ntp_time_temp = getNtpTime();
-                  if (isTimeValid(ntp_time_temp)) {
-                    RTC.set(ntp_time_temp);
-                    wxLogTag(F("NTP"), F("RTC updated"));
-                    rtc_got_update_from_ntp = true;
-                    setSyncProvider([](){return RTC.get();});
-                  } else {
-                    Serial.println("RTC update via NTP failed! Trying again during next data upload.");
-                  }
-                }
-              } else {
-                setArduinoTimeWithNtp();
-              }
-            #endif
-
-            wxLogTag(F("NET"), F("telnet listen (8s)"));
-            for (unsigned int i = 0; i <= waitTimeIncomingClient; i++) {
-              checkEthIncomingData();
-              wdt_reset();
-              delay(1000);
-            }
-          } else {
-            ethConnFails++;
-          }
-        }
-#endif
 #ifdef ANEMO_WS85
         if (uploadThisMinute) {
           ws85LogUploadSessionSummary();
@@ -1312,10 +1263,9 @@ void loop()
       } // End "new minute()" (clock minute, not runtime minute)
 
 #ifndef BENCH_MODE
-      // Five-minute upload: WiFi at mm:(n-1):10, Ethernet at mm:(n-1):55, send at mm:n:00.
+      // Five-minute upload runs on WX rollover (after boundary minute is cached). Prime links here.
       if (timeStatus() == timeSet && millis() > 180000) {
         static byte wifiPrimedMinute = 255;
-        static byte lastUploadMinute = 255;
         byte wxMin = minute();
         byte wxSec = second();
         if (wxMin % 5 == 4 && wxSec == wifiStartSecond && wifiPrimedMinute != wxMin) {
@@ -1323,76 +1273,8 @@ void loop()
           uploadPending = true;
           enableWifi();
         }
-        bool doUpload = (wxMin % 5 == 0 && wxSec == 0 && lastUploadMinute != wxMin);
         if (wxMin % 5 == 4 && wxSec == ethStartSecond) {
           enableEthernet();
-          if (minute() % 5 == 0) {
-            doUpload = (lastUploadMinute != minute());
-          }
-        }
-        if (doUpload) {
-          lastUploadMinute = minute();
-          uploadPending = true;
-          wxLogSection(F("UPLOAD"));
-          if (wifiStartTime && (millis() - wifiStartTime) / 1000 >= wifiStartupDelay) {
-            wxLogTag(F("NET"), F("wifi ready"));
-            wifiStartTime = 0;
-            wifiEnabled = true;
-          }
-          if (!ethEnabled) {
-            enableEthernet();
-          }
-          if (ethEnabled){ //if enableEthernet() fails to establish a connection, skip everything and shut connection down until next five minutes
-            msTemp = millis();
-            bool wasJustRestarted = justRestarted;
-            uploadCachedWeather(minute(), uploadStatus);
-            if (wasJustRestarted) {
-              justRestarted = false;
-            }
-            // Done sending, hope it worked! (error handling later) Turn off Eth & Wifi until the next 5 minute boundary.
-			
-			if (uploadStatus==0){ // Means upload was successful
-				if (reportWatchdog) {
-					wxLogTag(F("UP"), F("watchdog EEPROM flag cleared"));
-					reportWatchdog = 0;
-					EEPROM.update(eeWatchdog, 0);   //Clear the watchdog-happened bit once we have reason to believe it's been reported.
-				}
-				ethLastFailureCode = 0;
-			}
-
-            // Update RTC from NTP Server data:
-            #ifndef SIMULATE_RTC
-              if (rtc_available) {
-                if (!rtc_got_update_from_ntp){ // Update RTC only once, during first first data upload or until it works
-                  ntp_time_temp = getNtpTime();
-                  if (isTimeValid(ntp_time_temp)){ // Only update when time is valid
-                    RTC.set(ntp_time_temp);
-                    wxLogTag(F("NTP"), F("RTC updated"));
-                    rtc_got_update_from_ntp = true;
-                    setSyncProvider([](){return RTC.get();}); // Update Arduino time immediately.
-                  } else{
-                    Serial.println("RTC update via NTP failed! Trying again during next data upload.");
-                  }
-                }
-              } else {
-                setArduinoTimeWithNtp(); // When Arduino depends on NTP, do a refersh every data upload.
-              }
-            #endif
-
-            // Check for incoming connections for a few seconds. This isn't super clean, but it's easy.
-            wxLogTag(F("NET"), F("telnet listen (8s)"));
-            for (unsigned int i = 0; i <= waitTimeIncomingClient; i++){
-              checkEthIncomingData();
-              wdt_reset();
-              delay(1000);
-            }
-          } else {
-            ethConnFails++; //Increment if connection was not established. If ethConnFails is non-zero, it will be built into weather string by makeWeatherString and reset to zero within uploadWeather function, if it is successful.
-          }
-          disableWifi(); // Continuous Wifi operation is required if cameras are running. Correspondingly, keepUbiquitiOn flag and wifiStartTime are checked within disableWifi();
-          disableEthernet();
-          wxLogRule();
-          uploadPending = false;
         }
       }
 #endif
@@ -1425,6 +1307,76 @@ void loop()
 //*****************
 // HELPER FUNCTIONS
 //*****************
+
+void runFiveMinuteUpload(byte& uploadStatus) {
+  static byte lastUploadMinute = 255;
+  byte wxMin = minute();
+  if (lastUploadMinute == wxMin) return;
+  lastUploadMinute = wxMin;
+
+#ifndef BENCH_MODE
+  uploadPending = true;
+  wxLogSection(F("UPLOAD"));
+  if (wifiStartTime && (millis() - wifiStartTime) / 1000 >= wifiStartupDelay) {
+    wxLogTag(F("NET"), F("wifi ready"));
+    wifiStartTime = 0;
+    wifiEnabled = true;
+  }
+#endif
+
+  if (!ethEnabled) enableEthernet();
+  if (ethEnabled) {
+    msTemp = millis();
+    bool wasJustRestarted = justRestarted;
+    uploadCachedWeather(wxMin, uploadStatus);
+    if (wasJustRestarted) {
+      justRestarted = false;
+    }
+
+    if (uploadStatus == 0) {
+      if (reportWatchdog) {
+        wxLogTag(F("UP"), F("watchdog EEPROM flag cleared"));
+        reportWatchdog = 0;
+        EEPROM.update(eeWatchdog, 0);
+      }
+      ethLastFailureCode = 0;
+    }
+
+#ifndef SIMULATE_RTC
+    if (rtc_available) {
+      if (!rtc_got_update_from_ntp) {
+        ntp_time_temp = getNtpTime();
+        if (isTimeValid(ntp_time_temp)) {
+          RTC.set(ntp_time_temp);
+          wxLogTag(F("NTP"), F("RTC updated"));
+          rtc_got_update_from_ntp = true;
+          setSyncProvider([](){return RTC.get();});
+        } else {
+          Serial.println(F("RTC update via NTP failed! Trying again during next data upload."));
+        }
+      }
+    } else {
+      setArduinoTimeWithNtp();
+    }
+#endif
+
+    wxLogTag(F("NET"), F("telnet listen (8s)"));
+    for (unsigned int i = 0; i <= waitTimeIncomingClient; i++) {
+      checkEthIncomingData();
+      wdt_reset();
+      delay(1000);
+    }
+  } else {
+    ethConnFails++;
+  }
+
+#ifndef BENCH_MODE
+  disableWifi();
+  disableEthernet();
+  wxLogRule();
+  uploadPending = false;
+#endif
+}
 
 void saveWeatherToCache(const String& weatherString) {
   byte slot = minute() % 10;
