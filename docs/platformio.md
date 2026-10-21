@@ -175,6 +175,13 @@ pio run -e tavis -t tftp-deploy
 pio run -e tavis -t tftp-deploy --upload-port 192.168.2.227
 ```
 
+On Windows (no `nc` in Git Bash), retry until the post-upload telnet window opens:
+
+```powershell
+.\scripts\telnet-snipe.ps1
+.\scripts\telnet-snipe.ps1 -StationHost 192.168.2.227
+```
+
 ## Feature flags
 
 Common toggles in `platformio.ini` under `[env:mega] build_flags`:

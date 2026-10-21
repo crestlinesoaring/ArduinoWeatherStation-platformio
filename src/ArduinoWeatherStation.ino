@@ -62,7 +62,7 @@ const byte ethStartSecond = 55;  // Power on Ethernet at second 55 of the pre-up
 const int EthStartupDelay = 5000; // Milliseconds to wait for Ethernet Shield to establish connection before continuing without sending. Used by enableEthernet() in wxTimeNet. Should be larger than 5 sec
 int minutesBeforeSunrise = 70;              // Minutes before sunrise to wake and start sending data. Should consider additional time because reboot happens every hour only -> might miss the sunrise.
 int minutesAfterSunset = 30;                // Minutes after sunset to stay awake before sleep().
-const unsigned int waitTimeIncomingClient = 8; // This variable sets the time the Telnet loop waits for input. Minimum is 1. Default 8. Maximum is 3600.
+const unsigned int waitTimeIncomingClient = 2; // Seconds to poll telnet after upload (one checkEthIncomingData/s). Min 1.
 byte uploadRetryNum = 1; // Extra PUT attempts after a connect/write failure (0 = one try only).
 float battery_ma_offset = 30.0; // INA219 current measurements sometimes show an offset that needs correction. Battery_ma_offset [mA] will be added to the measured signal.
 
@@ -1361,8 +1361,10 @@ void runFiveMinuteUpload(byte& uploadStatus) {
     }
 #endif
 
-    wxLogTag(F("NET"), F("telnet listen (8s)"));
-    for (unsigned int i = 0; i <= waitTimeIncomingClient; i++) {
+    Serial.print(F("[NET] telnet listen ("));
+    Serial.print(waitTimeIncomingClient);
+    Serial.println(F("s)"));
+    for (unsigned int i = 0; i < waitTimeIncomingClient; i++) {
       checkEthIncomingData();
       wdt_reset();
       delay(1000);
