@@ -63,6 +63,19 @@ function Wait-TcpPort {
     }
 }
 
+function Play-ConnectChime {
+    try {
+        [System.Media.SystemSounds]::Asterisk.Play()
+    } catch {
+        try {
+            [Console]::Beep(880, 120)
+            [Console]::Beep(1175, 180)
+        } catch {
+            # Non-Windows hosts or silent session
+        }
+    }
+}
+
 function Read-AvailableLines {
     param(
         [System.IO.StreamReader] $Reader,
@@ -84,6 +97,7 @@ while ($null -eq $tcp) {
         Start-Sleep -Milliseconds $RetryDelayMs
     }
 }
+Play-ConnectChime
 Write-Host ""
 Write-Host "Connected. Commands are single letters + Enter (?, M, R, q). Ctrl+C to exit."
 Write-Host ""
