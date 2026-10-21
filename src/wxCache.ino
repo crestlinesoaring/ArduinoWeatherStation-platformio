@@ -218,12 +218,12 @@ void sdReadFileToSerial(char *fileName) {
 }
 
 
-void sdReadFileToSocket(char *fileName) {
+void sdReadFileToSocket(char *fileName, Stream &io) {
 
   msTemp = millis();
   wdt_reset();
 
-  Serial.print("Dumping SD file to ethernet socket: "); Serial.println(fileName);
+  Serial.print("Dumping SD file to stream: "); Serial.println(fileName);
 
   bool sdEnabledEthernet = false;
   if (not ethEnabled) {
@@ -239,7 +239,7 @@ void sdReadFileToSocket(char *fileName) {
 
     while (file.available()) {
       wdt_reset();
-      incomingClient.write(file.read());
+      io.write(file.read());
     }
 
     file.close();

@@ -916,6 +916,7 @@ void setup()
 
 void loop()
 {
+  handleSerial();
 
 #ifdef ANEMO_WS85
   ws85Poll();

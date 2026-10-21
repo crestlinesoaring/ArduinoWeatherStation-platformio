@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 import shutil
+import socket
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -15,6 +15,12 @@ Import("env")
 
 TFTP_RETRY_COUNT = 3
 TFTP_RETRY_DELAY_S = 2.0
+
+DEFAULT_TFTP_PORT = 69
+TELNET_PORT = 23537
+DEPLOY_RESET_PRE_DELAY_S = 0.5
+DEPLOY_POST_RESET_DELAY_S = 2.0
+DEPLOY_RETRY_DELAY_S = 1.0
 
 
 def _cpp_define(name: str):
@@ -53,8 +59,19 @@ def _require_define(name: str) -> int:
         raise RuntimeError(str(exc)) from exc
 
 
-def _tftp_url(host: str, filename: str) -> str:
-    return f"tftp://{host}/{filename}"
+def _resolve_tftp_port() -> int:
+    port = _cpp_define("ATHENA_TFTP_PORT")
+    if port is None:
+        return DEFAULT_TFTP_PORT
+    return _int_define(port, "ATHENA_TFTP_PORT")
+
+
+def _tftp_url(host: str, filename: str, port: int | None = None) -> str:
+    if port is None:
+        port = _resolve_tftp_port()
+    if port == 69:
+        return f"tftp://{host}/{filename}"
+    return f"tftp://{host}:{port}/{filename}"
 
 
 def _resolve_tftp_host() -> str:
@@ -68,11 +85,49 @@ def _resolve_tftp_host() -> str:
     return f"192.168.{ip_q3}.{ip_wx}"
 
 
-def _curl_tftp_upload(curl: str, bin_path: Path, url: str) -> None:
-    cmd = [curl, "-T", str(bin_path), url]
-    if int(ARGUMENTS.get("PIOVERBOSE", 0)):
-        cmd.insert(1, "-v")
+def _curl_tftp_put(curl: str, bin_path: Path, url: str) -> None:
+    cmd = [curl, "-T", str(bin_path), url, "--tftp-no-options"]
     subprocess.run(cmd, check=True)
+
+
+def _send_telnet_tftp_mode(host: str) -> None:
+    time.sleep(DEPLOY_RESET_PRE_DELAY_S)
+    with socket.create_connection((host, TELNET_PORT), timeout=5) as sock:
+        sock.settimeout(2.0)
+        # Let the welcome line arrive before we send M (matches interactive telnet).
+        try:
+            while True:
+                chunk = sock.recv(256)
+                if not chunk or b"help" in chunk.lower():
+                    break
+        except OSError:
+            pass
+        sock.sendall(b"M\n")
+        try:
+            sock.recv(512)
+        except OSError:
+            pass
+        time.sleep(0.25)
+
+
+def _until_telnet_tftp_mode(host: str) -> None:
+    while True:
+        try:
+            _send_telnet_tftp_mode(host)
+            return
+        except OSError:
+            print(".")
+            time.sleep(DEPLOY_RETRY_DELAY_S)
+
+
+def _until_tftp_upload(curl: str, bin_path: Path, url: str) -> None:
+    while True:
+        try:
+            _curl_tftp_put(curl, bin_path, url)
+            return
+        except subprocess.CalledProcessError:
+            print(".")
+            time.sleep(DEPLOY_RETRY_DELAY_S)
 
 
 def _tftp_upload_with_retries(curl: str, bin_path: Path, url: str) -> None:
@@ -80,7 +135,7 @@ def _tftp_upload_with_retries(curl: str, bin_path: Path, url: str) -> None:
     for attempt in range(1, TFTP_RETRY_COUNT + 1):
         try:
             print(f"[tftp-upload] TFTP put attempt {attempt}/{TFTP_RETRY_COUNT}")
-            _curl_tftp_upload(curl, bin_path, url)
+            _curl_tftp_put(curl, bin_path, url)
             return
         except subprocess.CalledProcessError as exc:
             last_error = exc
@@ -105,14 +160,59 @@ def tftp_upload(target, source, env):
         raise RuntimeError("curl not found on PATH (required for TFTP upload).")
 
     host = _resolve_tftp_host()
-    url = _tftp_url(host, bin_path.name)
+    tftp_port = _resolve_tftp_port()
+    url = _tftp_url(host, bin_path.name, tftp_port)
 
     print(f"[tftp-upload] env={env_name} file={bin_path}")
-    print(f"[tftp-upload] curl -T {bin_path} {url}")
-    print("[tftp-upload] board must already be in Athena TFTP/update mode")
+    print(f"[tftp-upload] curl -T {bin_path} {url} --tftp-no-options")
+    print("[tftp-upload] station must be in Athena TFTP mode (e.g. right after a hard reboot)")
     _tftp_upload_with_retries(curl, bin_path, url)
     print("[tftp-upload] upload complete")
 
+
+def tftp_deploy(target, source, env):
+    env_name = env["PIOENV"]
+    build_dir = Path(env.subst("$BUILD_DIR"))
+    bin_path = build_dir / f"{env.subst('${PROGNAME}')}.hex.bin"
+
+    if not bin_path.is_file():
+        raise RuntimeError(
+            f"{bin_path} not found. Run 'pio run -e {env_name}' to build firmware.hex.bin."
+        )
+
+    curl = shutil.which("curl")
+    if not curl:
+        raise RuntimeError("curl not found on PATH (required for TFTP deploy).")
+
+    host = _resolve_tftp_host()
+    tftp_port = _resolve_tftp_port()
+    url = _tftp_url(host, bin_path.name, tftp_port)
+
+    print(f"[tftp-deploy] env={env_name} host={host} file={bin_path}")
+    if tftp_port != DEFAULT_TFTP_PORT:
+        print(f"[tftp-deploy] TFTP port={tftp_port} (from ATHENA_TFTP_PORT)")
+    print(
+        f"[tftp-deploy] telnet M+enter on port {TELNET_PORT} "
+        "(TFTP flag + reboot) until connect succeeds"
+    )
+    _until_telnet_tftp_mode(host)
+    time.sleep(DEPLOY_POST_RESET_DELAY_S)
+    print(f"[tftp-deploy] curl -T {bin_path} {url} --tftp-no-options")
+    _until_tftp_upload(curl, bin_path, url)
+    print("done")
+
+
+env.AddCustomTarget(
+    name="tftp-deploy",
+    dependencies="$BUILD_DIR/${PROGNAME}.hex",
+    actions=[env.Action(tftp_deploy, "Deploying firmware (telnet TFTP mode + upload)...")],
+    title="TFTP-Deploy",
+    description=(
+        "Retry telnet M+enter on port 23537 until the station answers, wait 2s, "
+        "then retry TFTP upload (curl --tftp-no-options) until success. "
+        "Target IP from IP_Q3/IP_WX or --upload-port."
+    ),
+)
 
 env.AddCustomTarget(
     name="tftp-upload",
@@ -123,6 +223,6 @@ env.AddCustomTarget(
         "Upload firmware.hex.bin via Athena TFTP using curl. "
         "Target IP comes from IP_Q3/IP_WX build_flags. "
         "Override with --upload-port 192.168.x.x. "
-        "Put the board in TFTP mode first."
+        "Station must be in TFTP mode (e.g. immediately after a hard reboot)."
     ),
 )

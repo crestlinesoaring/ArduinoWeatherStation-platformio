@@ -47,7 +47,7 @@ If you omit `-e`, the default env `mega` is built.
 # Build
 pio run -e gb5_lab
 
-# Upload over USB serial (avrdude)
+# Upload over USB serial (avrdude; verify pass disabled via `upload_flags = -V` in `platformio.ini`)
 pio run -e gb5_lab -t upload
 
 # Serial monitor (115200 baud, logs to logs\)
@@ -137,9 +137,9 @@ pio run -e gb5_lab -t upload --upload-port COM5
 
 Available on lab envs: `tavis`, `gb5_lab`, `gb6_lab`.
 
-Uploads `firmware.hex.bin` via TFTP using curl. The board must **already be in
-Athena TFTP/update mode** before you run this (the station is normally sleeping;
-wake it and enter TFTP mode manually — telnet `M`, etc.).
+Uploads `firmware.hex.bin` via TFTP using curl. The station must be in **Athena
+TFTP/update mode** — in practice this works reliably if you run it **right after a
+hard reboot** (power cycle). Retries up to 3 times.
 
 Target IP is derived from `IP_Q3` and `IP_WX` in the env's `build_flags`, or
 override with `--upload-port`:
@@ -152,16 +152,27 @@ pio run -e gb5_lab -t tftp-upload
 pio run -e gb5_lab -t tftp-upload --upload-port 192.168.222.222
 ```
 
-Equivalent manual command:
+Equivalent manual command (`--tftp-no-options` is required with curl on this setup):
 
 ```powershell
-curl -T .pio\build\gb5_lab\firmware.hex.bin tftp://192.168.222.222/firmware.hex.bin
+curl -T .pio\build\gb5_lab\firmware.hex.bin tftp://192.168.222.222/firmware.hex.bin --tftp-no-options
 ```
 
-The script retries the TFTP put up to 3 times. Add PlatformIO verbose for curl `-v`:
+The script retries the TFTP put up to 3 times.
+
+### `tftp-deploy` — telnet into TFTP mode and flash over Ethernet
+
+Same lab envs as `tftp-upload`. Automates a field-style loop:
+
+1. Until connect succeeds: wait 0.5s, send `M` + newline on telnet port **23537** (Athena TFTP flag + reboot).
+2. Wait 2 seconds.
+3. Until upload succeeds: `curl -T firmware.hex.bin tftp://<ip>/firmware.hex.bin --tftp-no-options`.
+
+Prints `.` between retries. Builds `firmware.hex.bin` if needed.
 
 ```powershell
-pio run -e gb5_lab -t tftp-upload -v
+pio run -e tavis -t tftp-deploy
+pio run -e tavis -t tftp-deploy --upload-port 192.168.2.227
 ```
 
 ## Feature flags
@@ -220,10 +231,18 @@ pio run -e gb5_lab -t eeprom-net --upload-port COM5
 pio run -e gb5_lab -t upload --upload-port COM5
 ```
 
-### Field firmware update (TFTP, board already in update mode)
+### Field firmware update (TFTP)
+
+Right after a hard reboot (Athena TFTP window):
 
 ```powershell
 pio run -e gb5_lab -t tftp-upload
+```
+
+Telnet `M` into TFTP mode, then retry curl until upload succeeds:
+
+```powershell
+pio run -e tavis -t tftp-deploy
 ```
 
 ### EEPROM recovery

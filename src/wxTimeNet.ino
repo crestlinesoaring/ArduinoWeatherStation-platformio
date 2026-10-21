@@ -31,6 +31,378 @@ bool resolveCssServerIp() {
 IPAddress getCssServerIp() {
   return cssServerIp;
 }
+// Telnet and Serial share the same single-character command set (Stream interface).
+void handleRemoteCommand(char c, Stream &io, bool &quitSession) {
+  char fileName[13];
+  String strFileName;
+  int rtcSetStatus;
+  unsigned long RTCSetTimeoutStart;
+  bool RTCSetTimeoutExceeded;
+  time_t RTCSett;
+  tmElements_t RTCSettm;
+
+          switch (c) {
+            case 'q':
+            case 'Q': // for quit/Quit
+              quitSession = true;
+              break;
+            
+            case 'R': // for Reset
+              wdt_reset();
+              Serial.println(F("---===---===--- Client hit R and [enter], which causes the reboot ---===---===---"));
+              io.println(F("R and Enter detected. Rebooting and disconnecting."));
+              wdt_disable();              // kill interference
+              wdt_enable(WDTO_15MS);      // set WD reset timeout to 15msec
+              while (true);                  // wait for WD to happen
+              break;                      // End of 'R'eset
+
+            case 'M':                     // 'M'anually enable (no-timeout) TFTP mode and make a Reset to trigger TFTP mode
+              wdt_reset();                // prevent timeout for now
+              Serial.println(F("---===---===--- Client hit M and [enter], which sets the TFTP EEPROM flag and issues a WD reset to trigger TFTP mode---===---===---"));
+              io.println(F("M and Enter detected. Seeting flag, rebooting and disconnecting."));
+              EEPROM.write(02,0xDD);      // enableUpdateMode, set the TFTP mode via flag (0xDD) in EEPROM location 02
+              delay(100);                 // strangely must wait here for it to work
+              wdt_disable();              // kill interference
+              wdt_enable(WDTO_15MS);      // set WD reset timeout to 15msec
+              while (true);               // wait 15msec for WD to happen, Mega will be in TFTP mode after reset
+              break;                      // End of 'M'anual TFTP + reset
+              
+            case 'C': // for Cache, dump what cached data we have
+              io.println(F("C and Enter detected. Dumping what we have cached in memory. Be sure to disconnect."));
+              for (byte i=0; i < 10; i++) {
+                Serial.println(wxStringCache[i]);
+                io.print(i); io.print(": ");
+                io.println(wxStringCache[i]);
+              }
+
+              break; // End of 'C'ache
+              
+            case 'D': // for Dump today's file to this socket.
+              io.println(F("D and Enter detected. Dumping today's data file to this socket. No reboot (hopefully)"));
+              strFileName = getDateWithZerosNoSeparator() + ".dat";
+              strFileName.toCharArray(fileName, 13);
+              
+              sdReadFileToSocket(fileName, io);
+              
+              io.println(F("---- Done dumping file"));
+              Serial.println(F("Done dumping file to stream."));
+
+              break; // End of 'D'ump
+
+            case 'G':
+            case 'g': // for Get Camera Snapshot (a stretch, but I'm running out of letters)
+              io.print(F("<-- g detected. Getting a camera snapshot. "));
+
+              break; // End of 'g'et Camera Snapshot
+              
+            case 'U': // for Toggle Ubiquiti keep-on (vs 5 minute Save & Send all day)
+              io.print(F("U detected, toggling Ubiquity to: "));
+              if (EEPROM.read(eeKeepUbiOn)) {
+                io.println(F("turn off, only on once every 5 minutes."));
+                keepUbiquitiOn = false;
+                EEPROM.update(eeKeepUbiOn, false);
+              } else {
+                io.println(F("stay on ALL DAY. Still turns off at night."));
+                keepUbiquitiOn = true;
+                EEPROM.update(eeKeepUbiOn, true);
+              }
+              break; // End of 'U'biquiti toggle
+              
+            case 'B': // for turn Brain Box camera on
+              if (camStatus.BrainDesireOn) {
+                io.print(F("B detected, BrainBox camera was ON, turning off BrainBox camera..."));
+                disableCamBrain();
+              } else {
+                io.print(F("B detected, BrainBox camera was OFF, turning on BrainBox camera..."));
+                enableCamBrain();
+              }
+              io.println(F(" Done!"));
+              break;
+              
+            case 'H': // Set time of RTC.
+              io.println(F("H detected. Set RTC by providing timestamp."));
+              RTCSetTimeoutStart = millis();
+              RTCSetTimeoutExceeded = false;
+              io.println(F("Expected format: year,month,day,hour,minute,second"));
+              io.println(F("Where: year has four digits, month is 1-12, day is 1-31, hour is 0-23, minute and second are 0-59."));
+              io.println(F("Type anything else to abort. Timeout is 300 seconds."));
+              while(!io.available()){ //wait for user input resetting the watchdog_timer()
+                wdt_reset(); //reset watchdog while wating
+                msTemp = millis(); //Reset general client connection timeout while waiting.
+                delay(100);
+                if(millis()-RTCSetTimeoutStart > 300000){ 
+                  io.println(F("Timeout for RTC setting exceeded. Send 'H' to retry."));
+                  RTCSetTimeoutExceeded = true;
+                  break;
+                }
+              }
+              if (RTCSetTimeoutExceeded) break;
+              if (io.available() < 12) io.println(F("Error: Timestamp too short! Send 'H' again to retry."));
+              else {
+                int y = io.parseInt();
+                if (y < 1000) io.println(F("Error: Year must be > 1000!"));
+                else {
+                  RTCSettm.Year = CalendarYrToTm(y);
+                  RTCSettm.Month = io.parseInt();
+                  RTCSettm.Day = io.parseInt();
+                  RTCSettm.Hour = io.parseInt();
+                  RTCSettm.Minute = io.parseInt();
+                  RTCSettm.Second = io.parseInt();
+                  RTCSett = makeTime(RTCSettm);
+                  RTC.set(RTCSett);
+                  setTime(RTCSett);
+                  io.println(F("Setting RTC succesful! New time is:"));
+                  io.print(getDateWithZeros()); io.print(" "); io.println(getTimeWithZeros());
+                  while (io.available() > 0) io.read(); //flush buffer
+                }
+              }
+              msTemp = millis(); //Reset general client connection timeout.
+              break;
+              
+            case 'S': // for turn South camera on (formerly called Hang Glider launch camera)
+              if (camStatus.SouthDesireOn) {
+                io.print(F("S detected, South camera was ON, turning off South camera..."));
+                disableCamSouth();
+              } else {
+                io.print(F("S detected, South camera was OFF, turning on South camera..."));
+                enableCamSouth();
+              }
+              io.println(F(" Done!"));
+              break;
+
+            case 'P':
+            case 'N': // for turn North camera on (formerly called Paraglider Launch camera)
+              if (camStatus.NorthDesireOn) {
+                io.print(F("N detected, North camera was ON, turning off North camera..."));
+                disableCamNorth();
+              } else {
+                io.print(F("N detected, North camera was OFF, turning on North camera..."));
+                enableCamNorth();
+              }
+              io.println(F(" Done!"));
+              break;
+
+            case 'X': // Bad Weather forecast, don't auto-on the cameras in the morning.
+              if(camStatus.badWeather) {
+                io.print(F("X detected, Bad Weather bit is now set FALSE so cameras will auto-start tomorrow morning... "));
+                camStatus.badWeather = false;
+              } else {
+                io.print(F("X detected, Bad Weather bit is now set TRUE, so cameras will NOT auto-start tomorrow morning... "));
+                camStatus.badWeather = true;
+              }
+              EEPROM.put(eeCamStatus, camStatus);
+              io.println(F(" done!"));
+              break;
+
+            case 'O': // God mode: from 10am until night sleep, no solar/battery checks.
+              if (camStatus.godMode) {
+                io.print(F("O detected, god mode OFF — cameras use solar/battery logic again... "));
+                camStatus.godMode = false;
+              } else {
+                io.print(F("O detected, god mode ON — cameras from 10am until sleep, ignoring solar/battery... "));
+                camStatus.godMode = true;
+              }
+              EEPROM.put(eeCamStatus, camStatus);
+              io.println(F(" done!"));
+              break;
+              
+            case 'A': // for turn ALL cameras on
+              io.print(F("A detected, turning on all cameras... "));
+              enableCamBrain();
+              enableCamSouth();
+              enableCamNorth();
+              io.println(F(" - DONE."));
+              break;
+
+            case 'a': // for turn ALL cameras off
+              io.print(F("a detected, turning OFF all cameras... "));
+              disableCamBrain();
+              disableCamSouth();
+              disableCamNorth();
+              io.println(F(" - DONE."));
+              break;
+
+
+            case 'J': // Force an NTP check to update the RTC
+              io.print(F("J detected, forcing an NTP check, time is: "));
+              io.println(getTimeWithZeros());
+              returnStatus = "";
+              ensureNetworkForNtp(io);
+              wdt_reset();
+              compareRTCwithNTP();
+              wdt_reset();
+              // io.print(F("NTP time, raw: "));
+              // io.println(String(getNtpTime()));
+              // io.print(F("RTC time, raw: "));
+              // io.println(String(RTC.get()));
+              io.println();
+              io.print(F("NTP check finished. Time is: "));
+              io.println(getTimeWithZeros());
+              io.println(returnStatus);
+              break;
+              
+            case 'T':   // Add one hour to Time
+              io.println(F("H detected. Set RTC by providing timestamp."));
+              io.print(F("T detected, adding one hour to RTC time for Daylight Saving update. Current time is: "));
+              io.println(getTimeWithZeros());
+              rtcSetStatus = RTC.set(now() + 3600);
+              io.print(F("RTC is now set, return status: "));
+              io.print(rtcSetStatus);
+              io.print(F(" time is "));
+              io.println(getTimeWithZeros());
+              io.println();
+              io.println(F("---===  Note!! It takes 10 minutes for the system time to update after RTC fix!! ===------"));
+              break;
+              
+            case 't':   // Subtract one hour from Time
+              io.print(F("t detected, subtracting one hour from time for Daylight Saving update. Current time is: "));
+              io.println(getTimeWithZeros());
+              rtcSetStatus = RTC.set(now() - 3600);
+              io.print(F("RTC is now set, return status: "));
+              io.print(rtcSetStatus);
+              io.print(F(" time is "));
+              io.println(getTimeWithZeros());
+              io.println();
+              io.println(F("---===  Note!! It takes 10 minutes for system time to update after RTC fix!! ===------"));
+              break;
+
+            case 'W': // adjust "wake up" time 15 minutes earlier
+              io.print(F("W detected, adding 15 minutes to morning wake-up time... "));
+              minutesBeforeSunrise = minutesBeforeSunrise + 15;
+              if (minutesBeforeSunrise > 120) { minutesBeforeSunrise = 120; }
+              eeCharTemp = minutesBeforeSunrise;
+              EEPROM.put(eeMinutesBeforeSunrise, eeCharTemp);
+              io.print(F(" - DONE, now waking up "));
+              io.print(minutesBeforeSunrise);
+              io.println(F(" minutes before sunrise."));
+              break;
+
+            case 'w': // adjust "wake up" time 15 minutes later
+              io.print(F("w detected, subtracting 15 minutes from morning wake-up time... "));
+              minutesBeforeSunrise = minutesBeforeSunrise - 15;
+              if (minutesBeforeSunrise < -120) { minutesBeforeSunrise = -120; }
+              eeCharTemp = minutesBeforeSunrise;
+              EEPROM.put(eeMinutesBeforeSunrise, eeCharTemp);
+              io.print(F(" - DONE, now waking up "));
+              io.print(minutesBeforeSunrise);
+              io.println(F(" minutes before sunrise."));
+              break;
+
+            case 'Z': // adjust sleep (ZZZzzz) time 15 minutes later
+              io.print(F("S detected, adding 15 minutes to night go-to-sleep time... "));
+              minutesAfterSunset = minutesAfterSunset + 15;
+              if (minutesAfterSunset > 120) { minutesAfterSunset = 120; }
+              eeCharTemp = minutesAfterSunset;
+              EEPROM.put(eeMinutesAfterSunset, eeCharTemp);
+              io.print(F(" - DONE, now going to sleep "));
+              io.print(minutesAfterSunset);
+              io.println(F(" minutes after sunset."));
+              break;
+
+            case 'z': // adjust sleep (ZZZzzz) time 15 minutes earlier
+              io.print(F("s detected, subtracting 15 minutes from night go-to-sleep time... "));
+              minutesAfterSunset = minutesAfterSunset - 15;
+              if (minutesAfterSunset < -120) { minutesAfterSunset = -120; }
+              eeCharTemp = minutesAfterSunset;
+              EEPROM.put(eeMinutesAfterSunset, eeCharTemp);
+              io.print(F(" - DONE, now going to sleep "));
+              io.print(minutesAfterSunset);
+              io.println(F(" minutes after sunset."));
+              break;
+
+            case 'Y': // add one extra upload retrY
+              io.print(F("Y detected, adding one upload retry... "));
+              if (uploadRetryNum < 5) { uploadRetryNum++; }
+              EEPROM.update(eeUploadRetryNum, uploadRetryNum);
+              io.print(F(" - DONE, "));
+              io.print(uploadRetryNum);
+              io.print(F(" extra retries ("));
+              io.print(uploadRetryNum + 1);
+              io.println(F(" total PUT attempts)."));
+              break;
+
+            case 'y': // subtract one extra upload retrY
+              io.print(F("y detected, subtracting one upload retry... "));
+              if (uploadRetryNum > 0) { uploadRetryNum--; }
+              EEPROM.update(eeUploadRetryNum, uploadRetryNum);
+              io.print(F(" - DONE, "));
+              io.print(uploadRetryNum);
+              io.print(F(" extra retries ("));
+              io.print(uploadRetryNum + 1);
+              io.println(F(" total PUT attempts)."));
+              break;
+              
+            case '?':   // HELP
+              // print help
+              io.println(F("Options:"));
+              io.println(F("q or Q: Quit. Disconnects telnet session."));
+              io.println(F("M: Enter Athena TFTP update mode and reboot."));
+              io.println(F("R: Reset unit (watchdog reset)."));
+              io.println(F("C: Cache, print cached weather lines."));
+              io.println(F("D: Dump SD file for today (only valid if SD card exists)."));
+              io.println(F("U: Toggle ubiquiti between Always On and Off except for send every 5 minutes. Always off at night regardless."));
+              io.println(F("H: Set time and date of RTC."));
+              io.println(F("B: Camera viewing Brain."));
+              io.println(F("S: Camera viewing South."));
+              io.println(F("N: Camera viewing North."));
+              io.println(F("A: Turn ON all Cameras (Brain Box, South, North)."));
+              io.println(F("a: Turn OFF all Cameras (Brain Box, South, North)."));
+              io.println(F("X: Bad Weather forecast, disable AUTO TURN ON for cameras. Can still be manually turned on."));
+              io.println(F("O: God mode (10am until sleep, no solar/battery checks). Toggle."));
+              io.println(F("J: Force an NTP check to see if the RTC should be updated."));
+              io.println(F("T: Add one hour to RTC clock, for DST end in Fall. Takes 10 minutes to take effect!!"));
+              io.println(F("t: Subtract one hour from RTC clock, for DST begin in Spring. Takes 10 minutes to take effect!!"));
+              io.println(F("W: Add 15 minutes to morning wake time, wakes up earlier."));
+              io.println(F("w: Subtract 15 minutes from morning wake time, wake up later."));
+              io.println(F("Z: Add 15 minutes to night go-to-sleep (Zzzz) time, stay up later."));
+              io.println(F("z: Subtract 15 minutes from night go-to-sleep (Zzzz) time, go to sleep earlier."));
+              io.println(F("Y: Add one extra upload retry after PUT failure."));
+              io.println(F("y: Subtract one extra upload retry after PUT failure."));
+              io.println("");
+              io.print(F("  Minutes before Sunrise: ")); io.println(minutesBeforeSunrise);
+              io.print(F("  Minutes after Sunset:   ")); io.println(minutesAfterSunset);
+              io.print(F("  Upload retries:         ")); io.print(uploadRetryNum);
+              io.print(F(" extra (")); io.print(uploadRetryNum + 1); io.println(F(" total PUT attempts)"));
+              io.print(F("  camStatus EEPROM value: ")); io.println(EEPROM.read(eeCamStatus));
+              io.print(F("  Bad Weather bit:        ")); io.println(camStatus.badWeather);
+              io.print(F("  God mode:               ")); io.println(camStatus.godMode);
+              io.print(F("  CamSouth desired on:    ")); io.println(camStatus.SouthDesireOn);
+              io.print(F("  CamNorth desired on:    ")); io.println(camStatus.NorthDesireOn);
+              io.print(F("  CamBrain desired on:    ")); io.println(camStatus.BrainDesireOn);
+              io.print(F("  Ubiquiti Keep on:       ")); io.println(EEPROM.read(eeKeepUbiOn));
+              io.print(F("  Solar   V: "));              io.print(String(ina219a_solar_volts, 2));
+                io.print(F(", mA: "));                     io.println(String(ina219a_solar_ma, 0));
+              io.print(F("  Battery V: "));              io.print(String(ina219b_battery_volts, 2));
+                io.print(F(", mA: "));                     io.println(String(ina219b_battery_ma, 0));
+              io.print(F("  Lowest batt voltage since boot:  "));  io.println(String(voltsLowestSeen, 2));
+              io.print(F("  Lowest batt voltage last sleep:  "));  io.println(String(EEPROM.read(eeVoltsLowestSeen) / 10.0, 1));
+              io.print(F("  Lowest batt voltage day:  "));         io.println(String(EEPROM.read(eeVoltsLowestDay)));
+              io.print(F("  Battery drain minutes: "));  io.print(String(battDrainMinutes));
+                io.print(F(", mAm: "));                    io.print(String(battDrainmA));
+                io.print(F(", mAh = "));                   io.println(String(battDrainmA / 60));
+              io.print(F("  INA219 reads last min: "));  io.print(ina219_avgReadHz, 2);
+              io.print(F(" Hz, this min so far: "));   io.println(String(ina219_sampleCount));
+              io.print(F("  Temp internal: "));          io.println(String(bme280b.readTempC()));
+              io.print(F("  Humidity int:  "));          io.println(String(bme280b.readFloatHumidity()));
+              io.print(F("  Sunrise / Wake: "));
+                io.print(strMinutesToHHMM(sunrise));
+                io.print(" - "); io.print(minutesBeforeSunrise); io.print(" minutes = ");
+                io.println(strMinutesToHHMM(sunrise - minutesBeforeSunrise));
+              io.print(F("  Sunset / Sleep: "));
+                io.print(strMinutesToHHMM(sunset));
+                io.print(" + "); io.print(minutesAfterSunset); io.print(" minutes = ");
+                io.println(strMinutesToHHMM(sunset + minutesAfterSunset));
+              io.println();
+              io.print(F("  Current time: "));           io.println(getTimeWithZeros());
+              io.println();
+              io.print(F("  Free ram:      "));          io.println(String(freeRam()));
+              io.println(startupMessage);
+              io.println();
+              break;
+          }
+
+}
+
 /* Check for incoming data on the Ethernet server.
  *  Typically stuff like reset requests, maybe update EEPROM values, print current data cache, etc...
  */
@@ -43,385 +415,24 @@ bool checkEthIncomingData() {
     usTemp = millis();  // using usTemp so we can use msTemp as a timeout timer below.
     bool timeoutWarningGiven = false;
     bool boolQuitSession = false;
-    // Local variables for setting the RTC:
-    unsigned long RTCSetTimeoutStart;
-    bool RTCSetTimeoutExceeded;
-    time_t RTCSett;
-    tmElements_t RTCSettm;
     wdt_reset();
     incomingClient = server.available();
     if (incomingClient) {
       wxLogTag(F("NET"), F("telnet client connected"));
       incomingClient.println(F("Hi there, it's me, the Marshall weather station! Send '?' for help."));
-      while (incomingClient.connected()) {
-        //Serial.print(F("Entering While incomingClient.connected() at ms: "));
-        //Serial.println(millis());
+      msTemp = millis();
+      // Stay in session while connected OR bytes still buffered (fast clients may FIN before we read).
+      while (incomingClient.connected() || incomingClient.available()) {
         if (incomingClient.available()) {
           msTemp = millis();
           char c = incomingClient.read();
-          while(incomingClient.available()) incomingClient.read(); //clean buffer just to be safe
-          char fileName[13];
-          String strFileName;
-          int rtcSetStatus;
-          // Echoing disabled by JLT 2023
-          // Serial.write(c);
-          // incomingClient.print(c);
-
-          switch (c) {
-            case 'q':
-            case 'Q': // for quit/Quit
-              boolQuitSession = true;
-              break;
-            
-            case 'R': // for Reset
-              wdt_reset();
-              Serial.println(F("---===---===--- Client hit R and [enter], which causes the reboot ---===---===---"));
-              incomingClient.println(F("R and Enter detected. Rebooting and disconnecting."));
-              wdt_disable();              // kill interference
-              wdt_enable(WDTO_15MS);      // set WD reset timeout to 15msec
-              while (true);                  // wait for WD to happen
-              break;                      // End of 'R'eset
-
-            case 'M':                     // 'M'anually enable (no-timeout) TFTP mode and make a Reset to trigger TFTP mode
-              wdt_reset();                // prevent timeout for now
-              Serial.println(F("---===---===--- Client hit M and [enter], which sets the TFTP EEPROM flag and issues a WD reset to trigger TFTP mode---===---===---"));
-              incomingClient.println(F("M and Enter detected. Seeting flag, rebooting and disconnecting."));
-              EEPROM.write(02,0xDD);      // enableUpdateMode, set the TFTP mode via flag (0xDD) in EEPROM location 02
-              delay(100);                 // strangely must wait here for it to work
-              wdt_disable();              // kill interference
-              wdt_enable(WDTO_15MS);      // set WD reset timeout to 15msec
-              while (true);               // wait 15msec for WD to happen, Mega will be in TFTP mode after reset
-              break;                      // End of 'M'anual TFTP + reset
-              
-            case 'C': // for Cache, dump what cached data we have
-              incomingClient.println(F("C and Enter detected. Dumping what we have cached in memory. Be sure to disconnect."));
-              for (byte i=0; i < 10; i++) {
-                Serial.println(wxStringCache[i]);
-                incomingClient.print(i); incomingClient.print(": ");
-                incomingClient.println(wxStringCache[i]);
-              }
-
-              break; // End of 'C'ache
-              
-            case 'D': // for Dump today's file to this socket.
-              incomingClient.println(F("D and Enter detected. Dumping today's data file to this socket. No reboot (hopefully)"));
-              strFileName = getDateWithZerosNoSeparator() + ".dat";
-              strFileName.toCharArray(fileName, 13);
-              
-              sdReadFileToSocket(fileName);
-              
-              incomingClient.println(F("---- Done dumping file"));
-              Serial.println(F("Done dumping file to Ethernet."));
-
-              break; // End of 'D'ump
-
-            case 'G':
-            case 'g': // for Get Camera Snapshot (a stretch, but I'm running out of letters)
-              incomingClient.print(F("<-- g detected. Getting a camera snapshot. "));
-
-              break; // End of 'g'et Camera Snapshot
-              
-            case 'U': // for Toggle Ubiquiti keep-on (vs 5 minute Save & Send all day)
-              incomingClient.print(F("U detected, toggling Ubiquity to: "));
-              if (EEPROM.read(eeKeepUbiOn)) {
-                incomingClient.println(F("turn off, only on once every 5 minutes."));
-                keepUbiquitiOn = false;
-                EEPROM.update(eeKeepUbiOn, false);
-              } else {
-                incomingClient.println(F("stay on ALL DAY. Still turns off at night."));
-                keepUbiquitiOn = true;
-                EEPROM.update(eeKeepUbiOn, true);
-              }
-              break; // End of 'U'biquiti toggle
-              
-            case 'B': // for turn Brain Box camera on
-              if (camStatus.BrainDesireOn) {
-                incomingClient.print(F("B detected, BrainBox camera was ON, turning off BrainBox camera..."));
-                disableCamBrain();
-              } else {
-                incomingClient.print(F("B detected, BrainBox camera was OFF, turning on BrainBox camera..."));
-                enableCamBrain();
-              }
-              incomingClient.println(F(" Done!"));
-              break;
-              
-            case 'H': // Set time of RTC.
-              incomingClient.println(F("H detected. Set RTC by providing timestamp."));
-              RTCSetTimeoutStart = millis();
-              RTCSetTimeoutExceeded = false;
-              incomingClient.println(F("Expected format: year,month,day,hour,minute,second"));
-              incomingClient.println(F("Where: year has four digits, month is 1-12, day is 1-31, hour is 0-23, minute and second are 0-59."));
-              incomingClient.println(F("Type anything else to abort. Timeout is 300 seconds."));
-              while(!incomingClient.available()){ //wait for user input resetting the watchdog_timer()
-                wdt_reset(); //reset watchdog while wating
-                msTemp = millis(); //Reset general client connection timeout while waiting.
-                delay(100);
-                if(millis()-RTCSetTimeoutStart > 300000){ 
-                  incomingClient.println(F("Timeout for RTC setting exceeded. Send 'H' to retry."));
-                  RTCSetTimeoutExceeded = true;
-                  break;
-                }
-              }
-              if (RTCSetTimeoutExceeded) break;
-              if (incomingClient.available() < 12) incomingClient.println(F("Error: Timestamp too short! Send 'H' again to retry."));
-              else {
-                int y = incomingClient.parseInt();
-                if (y < 1000) incomingClient.println(F("Error: Year must be > 1000!"));
-                else {
-                  RTCSettm.Year = CalendarYrToTm(y);
-                  RTCSettm.Month = incomingClient.parseInt();
-                  RTCSettm.Day = incomingClient.parseInt();
-                  RTCSettm.Hour = incomingClient.parseInt();
-                  RTCSettm.Minute = incomingClient.parseInt();
-                  RTCSettm.Second = incomingClient.parseInt();
-                  RTCSett = makeTime(RTCSettm);
-                  RTC.set(RTCSett);
-                  setTime(RTCSett);
-                  incomingClient.println(F("Setting RTC succesful! New time is:"));
-                  incomingClient.print(getDateWithZeros()); incomingClient.print(" "); incomingClient.println(getTimeWithZeros());
-                  while (incomingClient.available() > 0) incomingClient.read(); //flush buffer
-                }
-              }
-              msTemp = millis(); //Reset general client connection timeout.
-              break;
-              
-            case 'S': // for turn South camera on (formerly called Hang Glider launch camera)
-              if (camStatus.SouthDesireOn) {
-                incomingClient.print(F("S detected, South camera was ON, turning off South camera..."));
-                disableCamSouth();
-              } else {
-                incomingClient.print(F("S detected, South camera was OFF, turning on South camera..."));
-                enableCamSouth();
-              }
-              incomingClient.println(F(" Done!"));
-              break;
-
-            case 'P':
-            case 'N': // for turn North camera on (formerly called Paraglider Launch camera)
-              if (camStatus.NorthDesireOn) {
-                incomingClient.print(F("N detected, North camera was ON, turning off North camera..."));
-                disableCamNorth();
-              } else {
-                incomingClient.print(F("N detected, North camera was OFF, turning on North camera..."));
-                enableCamNorth();
-              }
-              incomingClient.println(F(" Done!"));
-              break;
-
-            case 'X': // Bad Weather forecast, don't auto-on the cameras in the morning.
-              if(camStatus.badWeather) {
-                incomingClient.print(F("X detected, Bad Weather bit is now set FALSE so cameras will auto-start tomorrow morning... "));
-                camStatus.badWeather = false;
-              } else {
-                incomingClient.print(F("X detected, Bad Weather bit is now set TRUE, so cameras will NOT auto-start tomorrow morning... "));
-                camStatus.badWeather = true;
-              }
-              EEPROM.put(eeCamStatus, camStatus);
-              incomingClient.println(F(" done!"));
-              break;
-
-            case 'O': // God mode: from 10am until night sleep, no solar/battery checks.
-              if (camStatus.godMode) {
-                incomingClient.print(F("O detected, god mode OFF — cameras use solar/battery logic again... "));
-                camStatus.godMode = false;
-              } else {
-                incomingClient.print(F("O detected, god mode ON — cameras from 10am until sleep, ignoring solar/battery... "));
-                camStatus.godMode = true;
-              }
-              EEPROM.put(eeCamStatus, camStatus);
-              incomingClient.println(F(" done!"));
-              break;
-              
-            case 'A': // for turn ALL cameras on
-              incomingClient.print(F("A detected, turning on all cameras... "));
-              enableCamBrain();
-              enableCamSouth();
-              enableCamNorth();
-              incomingClient.println(F(" - DONE."));
-              break;
-
-            case 'a': // for turn ALL cameras off
-              incomingClient.print(F("a detected, turning OFF all cameras... "));
-              disableCamBrain();
-              disableCamSouth();
-              disableCamNorth();
-              incomingClient.println(F(" - DONE."));
-              break;
-
-
-            case 'J': // Force an NTP check to update the RTC
-              incomingClient.print(F("J detected, forcing an NTP check, time is: "));
-              incomingClient.println(getTimeWithZeros());
-              returnStatus = "";
-              compareRTCwithNTP();
-              // incomingClient.print(F("NTP time, raw: "));
-              // incomingClient.println(String(getNtpTime()));
-              // incomingClient.print(F("RTC time, raw: "));
-              // incomingClient.println(String(RTC.get()));
-              incomingClient.println();
-              incomingClient.print(F("NTP check finished. Time is: "));
-              incomingClient.println(getTimeWithZeros());
-              incomingClient.println(returnStatus);
-              break;
-              
-            case 'T':   // Add one hour to Time
-              incomingClient.println(F("H detected. Set RTC by providing timestamp."));
-              incomingClient.print(F("T detected, adding one hour to RTC time for Daylight Saving update. Current time is: "));
-              incomingClient.println(getTimeWithZeros());
-              rtcSetStatus = RTC.set(now() + 3600);
-              incomingClient.print(F("RTC is now set, return status: "));
-              incomingClient.print(rtcSetStatus);
-              incomingClient.print(F(" time is "));
-              incomingClient.println(getTimeWithZeros());
-              incomingClient.println();
-              incomingClient.println(F("---===  Note!! It takes 10 minutes for the system time to update after RTC fix!! ===------"));
-              break;
-              
-            case 't':   // Subtract one hour from Time
-              incomingClient.print(F("t detected, subtracting one hour from time for Daylight Saving update. Current time is: "));
-              incomingClient.println(getTimeWithZeros());
-              rtcSetStatus = RTC.set(now() - 3600);
-              incomingClient.print(F("RTC is now set, return status: "));
-              incomingClient.print(rtcSetStatus);
-              incomingClient.print(F(" time is "));
-              incomingClient.println(getTimeWithZeros());
-              incomingClient.println();
-              incomingClient.println(F("---===  Note!! It takes 10 minutes for system time to update after RTC fix!! ===------"));
-              break;
-
-            case 'W': // adjust "wake up" time 15 minutes earlier
-              incomingClient.print(F("W detected, adding 15 minutes to morning wake-up time... "));
-              minutesBeforeSunrise = minutesBeforeSunrise + 15;
-              if (minutesBeforeSunrise > 120) { minutesBeforeSunrise = 120; }
-              eeCharTemp = minutesBeforeSunrise;
-              EEPROM.put(eeMinutesBeforeSunrise, eeCharTemp);
-              incomingClient.print(F(" - DONE, now waking up "));
-              incomingClient.print(minutesBeforeSunrise);
-              incomingClient.println(F(" minutes before sunrise."));
-              break;
-
-            case 'w': // adjust "wake up" time 15 minutes later
-              incomingClient.print(F("w detected, subtracting 15 minutes from morning wake-up time... "));
-              minutesBeforeSunrise = minutesBeforeSunrise - 15;
-              if (minutesBeforeSunrise < -120) { minutesBeforeSunrise = -120; }
-              eeCharTemp = minutesBeforeSunrise;
-              EEPROM.put(eeMinutesBeforeSunrise, eeCharTemp);
-              incomingClient.print(F(" - DONE, now waking up "));
-              incomingClient.print(minutesBeforeSunrise);
-              incomingClient.println(F(" minutes before sunrise."));
-              break;
-
-            case 'Z': // adjust sleep (ZZZzzz) time 15 minutes later
-              incomingClient.print(F("S detected, adding 15 minutes to night go-to-sleep time... "));
-              minutesAfterSunset = minutesAfterSunset + 15;
-              if (minutesAfterSunset > 120) { minutesAfterSunset = 120; }
-              eeCharTemp = minutesAfterSunset;
-              EEPROM.put(eeMinutesAfterSunset, eeCharTemp);
-              incomingClient.print(F(" - DONE, now going to sleep "));
-              incomingClient.print(minutesAfterSunset);
-              incomingClient.println(F(" minutes after sunset."));
-              break;
-
-            case 'z': // adjust sleep (ZZZzzz) time 15 minutes earlier
-              incomingClient.print(F("s detected, subtracting 15 minutes from night go-to-sleep time... "));
-              minutesAfterSunset = minutesAfterSunset - 15;
-              if (minutesAfterSunset < -120) { minutesAfterSunset = -120; }
-              eeCharTemp = minutesAfterSunset;
-              EEPROM.put(eeMinutesAfterSunset, eeCharTemp);
-              incomingClient.print(F(" - DONE, now going to sleep "));
-              incomingClient.print(minutesAfterSunset);
-              incomingClient.println(F(" minutes after sunset."));
-              break;
-
-            case 'Y': // add one extra upload retrY
-              incomingClient.print(F("Y detected, adding one upload retry... "));
-              if (uploadRetryNum < 5) { uploadRetryNum++; }
-              EEPROM.update(eeUploadRetryNum, uploadRetryNum);
-              incomingClient.print(F(" - DONE, "));
-              incomingClient.print(uploadRetryNum);
-              incomingClient.print(F(" extra retries ("));
-              incomingClient.print(uploadRetryNum + 1);
-              incomingClient.println(F(" total PUT attempts)."));
-              break;
-
-            case 'y': // subtract one extra upload retrY
-              incomingClient.print(F("y detected, subtracting one upload retry... "));
-              if (uploadRetryNum > 0) { uploadRetryNum--; }
-              EEPROM.update(eeUploadRetryNum, uploadRetryNum);
-              incomingClient.print(F(" - DONE, "));
-              incomingClient.print(uploadRetryNum);
-              incomingClient.print(F(" extra retries ("));
-              incomingClient.print(uploadRetryNum + 1);
-              incomingClient.println(F(" total PUT attempts)."));
-              break;
-              
-            case '?':   // HELP
-              // print help
-              incomingClient.println(F("Options:"));
-              incomingClient.println(F("q or Q: Quit. Disconnects telnet session."));
-              incomingClient.println(F("R: Reset unit (watchdog reset)."));
-              incomingClient.println(F("C: Cache, print cached weather lines."));
-              incomingClient.println(F("D: Dump SD file for today (only valid if SD card exists)."));
-              incomingClient.println(F("U: Toggle ubiquiti between Always On and Off except for send every 5 minutes. Always off at night regardless."));
-              incomingClient.println(F("H: Set time and date of RTC."));
-              incomingClient.println(F("B: Camera viewing Brain."));
-              incomingClient.println(F("S: Camera viewing South."));
-              incomingClient.println(F("N: Camera viewing North."));
-              incomingClient.println(F("A: Turn ON all Cameras (Brain Box, South, North)."));
-              incomingClient.println(F("a: Turn OFF all Cameras (Brain Box, South, North)."));
-              incomingClient.println(F("X: Bad Weather forecast, disable AUTO TURN ON for cameras. Can still be manually turned on."));
-              incomingClient.println(F("O: God mode (10am until sleep, no solar/battery checks). Toggle."));
-              incomingClient.println(F("J: Force an NTP check to see if the RTC should be updated."));
-              incomingClient.println(F("T: Add one hour to RTC clock, for DST end in Fall. Takes 10 minutes to take effect!!"));
-              incomingClient.println(F("t: Subtract one hour from RTC clock, for DST begin in Spring. Takes 10 minutes to take effect!!"));
-              incomingClient.println(F("W: Add 15 minutes to morning wake time, wakes up earlier."));
-              incomingClient.println(F("w: Subtract 15 minutes from morning wake time, wake up later."));
-              incomingClient.println(F("Z: Add 15 minutes to night go-to-sleep (Zzzz) time, stay up later."));
-              incomingClient.println(F("z: Subtract 15 minutes from night go-to-sleep (Zzzz) time, go to sleep earlier."));
-              incomingClient.println(F("Y: Add one extra upload retry after PUT failure."));
-              incomingClient.println(F("y: Subtract one extra upload retry after PUT failure."));
-              incomingClient.println("");
-              incomingClient.print(F("  Minutes before Sunrise: ")); incomingClient.println(minutesBeforeSunrise);
-              incomingClient.print(F("  Minutes after Sunset:   ")); incomingClient.println(minutesAfterSunset);
-              incomingClient.print(F("  Upload retries:         ")); incomingClient.print(uploadRetryNum);
-              incomingClient.print(F(" extra (")); incomingClient.print(uploadRetryNum + 1); incomingClient.println(F(" total PUT attempts)"));
-              incomingClient.print(F("  camStatus EEPROM value: ")); incomingClient.println(EEPROM.read(eeCamStatus));
-              incomingClient.print(F("  Bad Weather bit:        ")); incomingClient.println(camStatus.badWeather);
-              incomingClient.print(F("  God mode:               ")); incomingClient.println(camStatus.godMode);
-              incomingClient.print(F("  CamSouth desired on:    ")); incomingClient.println(camStatus.SouthDesireOn);
-              incomingClient.print(F("  CamNorth desired on:    ")); incomingClient.println(camStatus.NorthDesireOn);
-              incomingClient.print(F("  CamBrain desired on:    ")); incomingClient.println(camStatus.BrainDesireOn);
-              incomingClient.print(F("  Ubiquiti Keep on:       ")); incomingClient.println(EEPROM.read(eeKeepUbiOn));
-              incomingClient.print(F("  Solar   V: "));              incomingClient.print(String(ina219a_solar_volts, 2));
-                incomingClient.print(F(", mA: "));                     incomingClient.println(String(ina219a_solar_ma, 0));
-              incomingClient.print(F("  Battery V: "));              incomingClient.print(String(ina219b_battery_volts, 2));
-                incomingClient.print(F(", mA: "));                     incomingClient.println(String(ina219b_battery_ma, 0));
-              incomingClient.print(F("  Lowest batt voltage since boot:  "));  incomingClient.println(String(voltsLowestSeen, 2));
-              incomingClient.print(F("  Lowest batt voltage last sleep:  "));  incomingClient.println(String(EEPROM.read(eeVoltsLowestSeen) / 10.0, 1));
-              incomingClient.print(F("  Lowest batt voltage day:  "));         incomingClient.println(String(EEPROM.read(eeVoltsLowestDay)));
-              incomingClient.print(F("  Battery drain minutes: "));  incomingClient.print(String(battDrainMinutes));
-                incomingClient.print(F(", mAm: "));                    incomingClient.print(String(battDrainmA));
-                incomingClient.print(F(", mAh = "));                   incomingClient.println(String(battDrainmA / 60));
-              incomingClient.print(F("  INA219 reads last min: "));  incomingClient.print(ina219_avgReadHz, 2);
-              incomingClient.print(F(" Hz, this min so far: "));   incomingClient.println(String(ina219_sampleCount));
-              incomingClient.print(F("  Temp internal: "));          incomingClient.println(String(bme280b.readTempC()));
-              incomingClient.print(F("  Humidity int:  "));          incomingClient.println(String(bme280b.readFloatHumidity()));
-              incomingClient.print(F("  Sunrise / Wake: "));
-                incomingClient.print(strMinutesToHHMM(sunrise));
-                incomingClient.print(" - "); incomingClient.print(minutesBeforeSunrise); incomingClient.print(" minutes = ");
-                incomingClient.println(strMinutesToHHMM(sunrise - minutesBeforeSunrise));
-              incomingClient.print(F("  Sunset / Sleep: "));
-                incomingClient.print(strMinutesToHHMM(sunset));
-                incomingClient.print(" + "); incomingClient.print(minutesAfterSunset); incomingClient.print(" minutes = ");
-                incomingClient.println(strMinutesToHHMM(sunset + minutesAfterSunset));
-              incomingClient.println();
-              incomingClient.print(F("  Current time: "));           incomingClient.println(getTimeWithZeros());
-              incomingClient.println();
-              incomingClient.print(F("  Free ram:      "));          incomingClient.println(String(freeRam()));
-              incomingClient.println(startupMessage);
-              incomingClient.println();
-              break;
+          while (incomingClient.available()) {
+            char extra = incomingClient.read();
+            if (extra != '\r' && extra != '\n') {
+              // ignore stray line endings only; other bytes are not a second command here
+            }
           }
+          handleRemoteCommand(c, incomingClient, boolQuitSession);
         }
         wdt_reset();
         if (boolQuitSession) {
@@ -834,6 +845,28 @@ int getTimeZone(void) {
 }
 
  
+// Bring up WiFi/Ethernet before NTP (same prerequisites as upload). Feeds watchdog during long waits.
+static void ensureNetworkForNtp(Stream &io) {
+  wdt_reset();
+  if (ethEnabled) {
+    return;
+  }
+#ifndef BENCH_MODE
+  if (!wifiEnabled) {
+    if (!wifiStartTime) {
+      io.println(F("Enabling WiFi for NTP (up to 50s)..."));
+      enableWifi(false);
+    }
+    waitForWifi();
+  }
+#endif
+  if (!ethEnabled) {
+    io.println(F("Enabling Ethernet for NTP..."));
+    enableEthernet(false);
+  }
+  wdt_reset();
+}
+
 /*-------- NTP code ----------*/
 /*****************************************************************************
   _______   _____   __  __   ______         __    _   _   _______   _____  
@@ -848,10 +881,12 @@ int getTimeZone(void) {
 
 time_t getNtpTime()
 {
+  wdt_reset();
   Udp.begin(localPort);
   while (Udp.parsePacket() > 0) ; // discard any previously received packets
   wxLogTag(F("NTP"), F("request"));
   sendNtpPacket(timeServer);
+  wdt_reset();
   uint32_t beginWait = millis();
   while (millis() - beginWait < 1500) {
     wdt_reset();
@@ -878,6 +913,7 @@ time_t getNtpTime()
 // send an NTP request to the time server at the given address (DNS lookup version, see IPAddress() version below)
 void sendNtpPacket(IPAddress &address)
 {
+  wdt_reset();
   // set all bytes in the buffer to 0
   memset(packetBuffer, 0, NTP_PACKET_SIZE);
   // Initialize values needed to form NTP request
@@ -896,11 +932,12 @@ void sendNtpPacket(IPAddress &address)
   Udp.beginPacket(address, 123); //NTP requests are to port 123
   Udp.write(packetBuffer, NTP_PACKET_SIZE);
   Udp.endPacket();
+  wdt_reset();
 }
 
 
 void compareRTCwithNTP() {
-  
+  wdt_reset();
   //Compare RTC to NTP, to set the RTC.
   unsigned int diffNTPRTC = 0;
 
@@ -935,7 +972,9 @@ void compareRTCwithNTP() {
       Serial.print(", setting RTC to ");
       Serial.print(timeNTP);
       byte rtcSetStatus;
+      wdt_reset();
       rtcSetStatus = RTC.set(timeNTP);
+      wdt_reset();
       if (rtcSetStatus) {
         Serial.print(" FAILED. Error code: ");
         Serial.print(rtcSetStatus);

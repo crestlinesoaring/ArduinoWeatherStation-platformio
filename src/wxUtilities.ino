@@ -142,9 +142,13 @@ void printDigits(int digits){
 
 
 void handleSerial() {
-  // If there's serial data waiting, process it here.
   while (Serial.available()) {
-    Serial.read();
+    char c = Serial.read();
+    while (Serial.available()) {
+      Serial.read();
+    }
+    bool quitSession = false;
+    handleRemoteCommand(c, Serial, quitSession);
   }
 }
 
