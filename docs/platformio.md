@@ -175,7 +175,15 @@ pio run -e tavis -t tftp-deploy
 pio run -e tavis -t tftp-deploy --upload-port 192.168.2.227
 ```
 
-### `telnet-snipe` — catch the post-upload telnet window
+### Telnet during upload (no sniping required)
+
+While Ethernet is up for the five-minute upload cycle (~:04:55 through end of PUTs),
+the station accepts TCP on **23537** but holds commands until uploads and NTP finish.
+The welcome line and `cmd:` prompt appear only when it is ready (`[NET] telnet ready
+for commands` on serial). You can connect any time in that window and wait; the
+2-second post-upload listen is only a grace period if nobody connected earlier.
+
+### `telnet-snipe` — fast connect helper (optional)
 
 Lab envs: `tavis`, `gb5_lab`, `gb6_lab`. Runs `scripts/telnet-snipe.ps1` until TCP
 **23537** connects (chime on success), then an interactive `cmd:` prompt. Station IP

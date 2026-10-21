@@ -69,4 +69,4 @@ byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, MAC_5, MAC_6 };
 
 IPAddress timeServer(40, 119, 6, 228);                    // jjj Must be updated. Local NTP server provided by Ken
 
-unsigned int localPort = 23537;                           // jjj instead of 8888, local port to listen for UDP packets
+unsigned int localPort = 8888;                            // NTP UDP local port (must not be 23537 — that is TCP telnet)

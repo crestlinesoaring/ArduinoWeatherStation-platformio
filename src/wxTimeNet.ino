@@ -5,6 +5,8 @@
  */
 #include <Dns.h>
 
+extern time_t uploadPending;
+
 static IPAddress cssServerIp(0, 0, 0, 0);
 static bool cssServerDnsValid = false;
 
@@ -403,70 +405,204 @@ void handleRemoteCommand(char c, Stream &io, bool &quitSession) {
 
 }
 
-/* Check for incoming data on the Ethernet server.
- *  Typically stuff like reset requests, maybe update EEPROM values, print current data cache, etc...
- */
-bool checkEthIncomingData() {
+static bool telnetWelcomeSent = false;
+static bool telnetPleaseWaitSent = false;
+static bool telnetHoldCommands = false;
+static bool telnetAcceptedThisCycle = false;
+
+static bool telnetNetReady() {
 #ifdef BENCH_MODE
-  if (!ethEnabled) return false;
+  return ethEnabled;
 #else
-  if (!wifiEnabled) return false;
+  return ethEnabled && wifiEnabled;
 #endif
-    usTemp = millis();  // using usTemp so we can use msTemp as a timeout timer below.
-    bool timeoutWarningGiven = false;
-    bool boolQuitSession = false;
-    wdt_reset();
-    incomingClient = server.available();
-    if (incomingClient) {
-      wxLogTag(F("NET"), F("telnet client connected"));
-      incomingClient.println(F("Hi there, it's me, the Marshall weather station! Send '?' for help."));
-      msTemp = millis();
-      // Stay in session while connected OR bytes still buffered (fast clients may FIN before we read).
-      while (incomingClient.connected() || incomingClient.available()) {
-        if (incomingClient.available()) {
-          msTemp = millis();
-          char c = incomingClient.read();
-          while (incomingClient.available()) {
-            char extra = incomingClient.read();
-            if (extra != '\r' && extra != '\n') {
-              // ignore stray line endings only; other bytes are not a second command here
-            }
-          }
-          handleRemoteCommand(c, incomingClient, boolQuitSession);
-        }
-        wdt_reset();
-        if (boolQuitSession) {
-          incomingClient.println("Session quit, DISCONNECTING.");
-          break;
-        }
-        if ((millis() - msTemp) > 20000) {
-          incomingClient.println("Idle timeout reached, DISCONNECTING.");
-          break;
-        } else if ((millis() - msTemp) > 10000) {
-          // Been 10 seconds with no input, give a warning
-          if (not timeoutWarningGiven) {
-            incomingClient.println("Idle timeout in 10 seconds....");
-            timeoutWarningGiven = true;
-          }
-        } else if (timeoutWarningGiven) {
-          // less than 10 secs but warning already given means timer was reset. Reset the warning too.
-          timeoutWarningGiven = false;
-        }
-        //incomingClient.stop();
-      }
-      delay(3);
-      incomingClient.println();
-      incomingClient.print(getTimeWithZeros());
-      incomingClient.println(": Ending Session. Goodbye!");
-      delay(10);
-      incomingClient.stop();
-      Serial.print(F("[NET] telnet disconnected ("));
-      Serial.print(millis() - usTemp);
-      Serial.println(F(" ms)"));
-      telnetSeconds = (millis() - usTemp) / 1000;
-      return true; // return true if a telnet communication took place
+}
+
+// Accept local telnet on the W5500 during the upload window even if WiFi is still starting.
+static bool telnetAcceptReady() {
+  if (!ethEnabled) {
+    return false;
+  }
+#ifdef BENCH_MODE
+  return true;
+#else
+  if (telnetHoldCommands || telnetAcceptedThisCycle || uploadPending) {
+    return true;
+  }
+  return wifiEnabled;
+#endif
+}
+
+void setTelnetHoldCommands(bool hold) {
+  telnetHoldCommands = hold;
+}
+
+static void telnetDropStaleClient() {
+  if (telnetHoldCommands || telnetAcceptedThisCycle) {
+    return;
+  }
+  if (incomingClient && !incomingClient.connected() && !incomingClient.available()) {
+    incomingClient.stop();
+    telnetWelcomeSent = false;
+    telnetPleaseWaitSent = false;
+  }
+}
+
+static void telnetSendPleaseWait() {
+  incomingClient.println(F("Connected - please wait while uploads finish."));
+  telnetPleaseWaitSent = true;
+}
+
+// Accept TCP while Ethernet is up; does not read commands or send welcome.
+void pollTelnetAcceptIfUploadWindow() {
+  if (!ethEnabled) {
+    return;
+  }
+  if (uploadPending || telnetHoldCommands || telnetAcceptedThisCycle) {
+    pollTelnetAccept();
+  }
+}
+
+void pollTelnetAccept() {
+  if (!telnetAcceptReady()) {
+    return;
+  }
+  telnetDropStaleClient();
+  if (incomingClient.connected() || incomingClient.available()) {
+    return;
+  }
+  // available() only returns a client after RX data; accept() returns ESTABLISHED idle connects.
+  EthernetClient newClient = server.accept();
+  if (newClient) {
+    incomingClient = newClient;
+    telnetWelcomeSent = false;
+    telnetPleaseWaitSent = false;
+    telnetAcceptedThisCycle = true;
+    wxLogTag(F("NET"), F("telnet client connected"));
+    if (telnetHoldCommands) {
+      wxLogTag(F("NET"), F("telnet held until upload finishes"));
     }
-  return false; //return false if no telnet communication took place
+    telnetSendPleaseWait();
+  }
+}
+
+static void telnetSendWelcome() {
+  incomingClient.println(F("Hi there, it's me, the Marshall weather station! Send '?' for help."));
+  telnetWelcomeSent = true;
+  msTemp = millis();
+  wxLogTag(F("NET"), F("telnet ready for commands"));
+}
+
+// Run command loop for an accepted client. Welcome is sent here when commands are allowed.
+bool serviceTelnetSession() {
+  if (!telnetNetReady()) {
+    return false;
+  }
+  if (!incomingClient.connected() && !incomingClient.available()) {
+    return false;
+  }
+
+  usTemp = millis();
+  bool timeoutWarningGiven = false;
+  bool boolQuitSession = false;
+  wdt_reset();
+
+  if (!telnetWelcomeSent) {
+    telnetSendWelcome();
+  }
+
+  while (incomingClient.connected() || incomingClient.available()) {
+    if (incomingClient.available()) {
+      msTemp = millis();
+      char c = incomingClient.read();
+      while (incomingClient.available()) {
+        char extra = incomingClient.read();
+        if (extra != '\r' && extra != '\n') {
+          // ignore stray line endings only; other bytes are not a second command here
+        }
+      }
+      handleRemoteCommand(c, incomingClient, boolQuitSession);
+    }
+    wdt_reset();
+    if (boolQuitSession) {
+      incomingClient.println("Session quit, DISCONNECTING.");
+      break;
+    }
+    if ((millis() - msTemp) > telnetIdleTimeoutMs) {
+      incomingClient.println("Idle timeout reached, DISCONNECTING.");
+      break;
+    } else if ((millis() - msTemp) > telnetIdleWarningMs) {
+      if (not timeoutWarningGiven) {
+        incomingClient.println("Idle timeout in 20 seconds....");
+        timeoutWarningGiven = true;
+      }
+    } else if (timeoutWarningGiven) {
+      timeoutWarningGiven = false;
+    }
+  }
+  delay(3);
+  incomingClient.println();
+  incomingClient.print(getTimeWithZeros());
+  incomingClient.println(": Ending Session. Goodbye!");
+  delay(10);
+  incomingClient.stop();
+  telnetWelcomeSent = false;
+  telnetPleaseWaitSent = false;
+  telnetAcceptedThisCycle = false;
+  Serial.print(F("[NET] telnet disconnected ("));
+  Serial.print(millis() - usTemp);
+  Serial.println(F(" ms)"));
+  telnetSeconds = (millis() - usTemp) / 1000;
+  return true;
+}
+
+/* Accept (if needed) and service one telnet session. Deferred while telnetHoldCommands is set. */
+bool checkEthIncomingData() {
+  if (!telnetNetReady()) {
+    return false;
+  }
+  wdt_reset();
+  pollTelnetAccept();
+  if (telnetHoldCommands) {
+    return false;
+  }
+  return serviceTelnetSession();
+}
+
+void finishTelnetAfterUpload() {
+  server.begin(); // NTP UDP may have recycled sockets; keep TCP telnet listening.
+  telnetHoldCommands = false;
+  if (telnetAcceptedThisCycle) {
+    uint32_t until = millis() + telnetIdleTimeoutMs;
+    while (millis() < until) {
+      if (incomingClient.connected() || incomingClient.available()) {
+        serviceTelnetSession();
+        return;
+      }
+      pollTelnetAccept();
+      wdt_reset();
+      delay(50);
+    }
+    wxLogTag(F("NET"), F("telnet client lost before command prompt"));
+    incomingClient.stop();
+    telnetAcceptedThisCycle = false;
+    telnetPleaseWaitSent = false;
+    return;
+  }
+  Serial.print(F("[NET] telnet listen ("));
+  Serial.print(waitTimeIncomingClient);
+  Serial.println(F("s)"));
+  uint32_t listenUntil = millis() + (unsigned long)waitTimeIncomingClient * 1000UL;
+  while (millis() < listenUntil) {
+    pollTelnetAccept();
+    if (incomingClient.connected() || incomingClient.available()) {
+      telnetAcceptedThisCycle = true;
+      serviceTelnetSession();
+      return;
+    }
+    wdt_reset();
+    delay(50);
+  }
 }
 
 void setKeepUbiquitiOn(bool v) {
@@ -676,6 +812,10 @@ void disableEthernet(bool quiet) {
   
   incomingClient.stop();
   client.stop();
+  telnetWelcomeSent = false;
+  telnetPleaseWaitSent = false;
+  telnetHoldCommands = false;
+  telnetAcceptedThisCycle = false;
 
   ethernetPowerOff();                             // Turn off Ethernet shield
 
@@ -890,6 +1030,7 @@ time_t getNtpTime()
   uint32_t beginWait = millis();
   while (millis() - beginWait < 1500) {
     wdt_reset();
+    pollTelnetAccept();
     int size = Udp.parsePacket();
     if (size >= NTP_PACKET_SIZE) {
       wxLogTag(F("NTP"), F("response"));

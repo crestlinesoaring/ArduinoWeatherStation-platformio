@@ -24,6 +24,7 @@ void delayWithWdt(unsigned long ms)
   unsigned long start = millis();
   while (millis() - start < ms) {
     wdt_reset();
+    pollTelnetAcceptIfUploadWindow();
     delay(100);
   }
 }

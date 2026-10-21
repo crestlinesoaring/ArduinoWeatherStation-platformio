@@ -62,7 +62,9 @@ const byte ethStartSecond = 55;  // Power on Ethernet at second 55 of the pre-up
 const int EthStartupDelay = 5000; // Milliseconds to wait for Ethernet Shield to establish connection before continuing without sending. Used by enableEthernet() in wxTimeNet. Should be larger than 5 sec
 int minutesBeforeSunrise = 70;              // Minutes before sunrise to wake and start sending data. Should consider additional time because reboot happens every hour only -> might miss the sunrise.
 int minutesAfterSunset = 30;                // Minutes after sunset to stay awake before sleep().
-const unsigned int waitTimeIncomingClient = 2; // Seconds to poll telnet after upload (one checkEthIncomingData/s). Min 1.
+const unsigned int waitTimeIncomingClient = 2; // Grace seconds after upload if no client connected yet. Min 1.
+const unsigned long telnetIdleWarningMs = 100000; // Warn when idle this long (in-session only; not the listen window).
+const unsigned long telnetIdleTimeoutMs = 120000; // Drop telnet after idle this long (in-session only).
 byte uploadRetryNum = 1; // Extra PUT attempts after a connect/write failure (0 = one try only).
 float battery_ma_offset = 30.0; // INA219 current measurements sometimes show an offset that needs correction. Battery_ma_offset [mA] will be added to the measured signal.
 
@@ -530,6 +532,9 @@ void enableWatchdog()
 void yield()
 {
   wdt_reset();
+#ifndef BENCH_MODE
+  pollTelnetAcceptIfUploadWindow();
+#endif
 }
 
 
@@ -1274,8 +1279,16 @@ void loop()
           uploadPending = true;
           enableWifi();
         }
-        if (wxMin % 5 == 4 && wxSec == ethStartSecond) {
+        static byte ethPrimedMinute = 255;
+        if (wxMin % 5 == 4 && wxSec >= ethStartSecond && ethPrimedMinute != wxMin) {
+          ethPrimedMinute = wxMin;
           enableEthernet();
+          if (uploadPending) {
+            setTelnetHoldCommands(true);
+          }
+        }
+        if (ethEnabled && uploadPending) {
+          pollTelnetAccept();
         }
       }
 #endif
@@ -1329,6 +1342,7 @@ void runFiveMinuteUpload(byte& uploadStatus) {
   if (ethEnabled) {
     msTemp = millis();
     bool wasJustRestarted = justRestarted;
+    setTelnetHoldCommands(true);
     uploadCachedWeather(wxMin, uploadStatus);
     if (wasJustRestarted) {
       justRestarted = false;
@@ -1361,14 +1375,7 @@ void runFiveMinuteUpload(byte& uploadStatus) {
     }
 #endif
 
-    Serial.print(F("[NET] telnet listen ("));
-    Serial.print(waitTimeIncomingClient);
-    Serial.println(F("s)"));
-    for (unsigned int i = 0; i < waitTimeIncomingClient; i++) {
-      checkEthIncomingData();
-      wdt_reset();
-      delay(1000);
-    }
+    finishTelnetAfterUpload();
   } else {
     ethConnFails++;
   }
@@ -1423,6 +1430,7 @@ static byte expectedHourForMinute(byte uploadMinute, byte expectedMinute) {
 
 static void tryUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour, byte& uploadStatus) {
   wdt_reset();
+  pollTelnetAccept();
   if (shouldUploadCacheSlot(slot, expectedMinute, expectedHour, wxStringCache[slot])) {
     uploadStatus = uploadWeather(wxStringCache[slot]);
   }
@@ -1649,7 +1657,9 @@ byte uploadWeather(String WeatherString)
       continue;
     }
 
-    if (enableEthDump2Serial) { Serial.write(charPut, strPutLength); }
+    if (enableEthDump2Serial) {
+      Serial.write(reinterpret_cast<const uint8_t*>(charPut), strPutLength);
+    }
     size_t written = client.write(charPut, strPutLength); //Better chance of a single packet by using a char[].
     wdt_reset();
     if (written != (size_t)strPutLength) {
