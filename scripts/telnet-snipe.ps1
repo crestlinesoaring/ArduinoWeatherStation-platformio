@@ -21,8 +21,11 @@
   Delay between failed attempts (default 150).
 
 .EXAMPLE
-  .\scripts\telnet-snipe.ps1
-  .\scripts\telnet-snipe.ps1 -StationHost 192.168.222.222
+  scripts\telnet-snipe.cmd
+  scripts\telnet-snipe.cmd -StationHost 192.168.222.222
+
+  If scripts are disabled, use the .cmd wrapper or:
+  powershell -ExecutionPolicy Bypass -File .\scripts\telnet-snipe.ps1
 #>
 [CmdletBinding()]
 param(

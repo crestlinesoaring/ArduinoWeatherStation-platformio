@@ -178,8 +178,12 @@ pio run -e tavis -t tftp-deploy --upload-port 192.168.2.227
 On Windows (no `nc` in Git Bash), retry until the post-upload telnet window opens:
 
 ```powershell
-.\scripts\telnet-snipe.ps1
-.\scripts\telnet-snipe.ps1 -StationHost 192.168.2.227
+# From repo root (bypasses “running scripts is disabled” without changing policy):
+scripts\telnet-snipe.cmd
+scripts\telnet-snipe.cmd -StationHost 192.168.2.227
+
+# Or explicitly:
+powershell -ExecutionPolicy Bypass -File .\scripts\telnet-snipe.ps1
 ```
 
 ## Feature flags
