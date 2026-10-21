@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 from SCons.Script import ARGUMENTS
 
 Import("env")
+
+SCRIPT_DIR = Path(env.subst("$PROJECT_DIR")) / "scripts"
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from pio_station_net import cpp_define as _cpp_define, int_define as _int_define, resolve_station_host
 
 TFTP_RETRY_COUNT = 3
 TFTP_RETRY_DELAY_S = 2.0
@@ -23,44 +28,8 @@ DEPLOY_POST_RESET_DELAY_S = 2.0
 DEPLOY_RETRY_DELAY_S = 1.0
 
 
-def _cpp_define(name: str):
-    for item in env.get("CPPDEFINES", []):
-        if isinstance(item, str):
-            if item == name:
-                return True
-        elif isinstance(item, (list, tuple)) and item and item[0] == name:
-            if len(item) == 1:
-                return True
-            return item[1]
-    return None
-
-
-def _int_define(value, name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} is not numeric: {value!r}")
-    if isinstance(value, int):
-        return value
-    match = re.search(r"-?\d+", str(value))
-    if not match:
-        raise ValueError(f"{name} is not numeric: {value!r}")
-    return int(match.group())
-
-
-def _require_define(name: str) -> int:
-    value = _cpp_define(name)
-    if value is None:
-        raise RuntimeError(
-            f"{name} is not defined for env '{env['PIOENV']}'. "
-            f"Add e.g. -D {name}=227 to build_flags in platformio.ini."
-        )
-    try:
-        return _int_define(value, name)
-    except ValueError as exc:
-        raise RuntimeError(str(exc)) from exc
-
-
 def _resolve_tftp_port() -> int:
-    port = _cpp_define("ATHENA_TFTP_PORT")
+    port = _cpp_define(env, "ATHENA_TFTP_PORT")
     if port is None:
         return DEFAULT_TFTP_PORT
     return _int_define(port, "ATHENA_TFTP_PORT")
@@ -75,14 +44,7 @@ def _tftp_url(host: str, filename: str, port: int | None = None) -> str:
 
 
 def _resolve_tftp_host() -> str:
-    """Return target host. Honor --upload-port when it looks like an IP address."""
-    upload_port = ARGUMENTS.get("upload-port") or ARGUMENTS.get("port")
-    if upload_port and "." in upload_port:
-        return upload_port.split(":", 1)[0]
-
-    ip_q3 = _require_define("IP_Q3")
-    ip_wx = _require_define("IP_WX")
-    return f"192.168.{ip_q3}.{ip_wx}"
+    return resolve_station_host(env, ARGUMENTS)
 
 
 def _curl_tftp_put(curl: str, bin_path: Path, url: str) -> None:
