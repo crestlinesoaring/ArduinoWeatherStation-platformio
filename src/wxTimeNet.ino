@@ -1019,12 +1019,14 @@ static void ensureNetworkForNtp(Stream &io) {
  *****************************************************************************
  */
 
-time_t getNtpTime()
+time_t getNtpTime(bool quiet)
 {
   wdt_reset();
   Udp.begin(localPort);
   while (Udp.parsePacket() > 0) ; // discard any previously received packets
-  wxLogTag(F("NTP"), F("request"));
+  if (!quiet) {
+    wxLogTag(F("NTP"), F("request"));
+  }
   sendNtpPacket(timeServer);
   wdt_reset();
   uint32_t beginWait = millis();
@@ -1033,7 +1035,9 @@ time_t getNtpTime()
     pollTelnetAccept();
     int size = Udp.parsePacket();
     if (size >= NTP_PACKET_SIZE) {
-      wxLogTag(F("NTP"), F("response"));
+      if (!quiet) {
+        wxLogTag(F("NTP"), F("response"));
+      }
       Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
       unsigned long secsSince1900;
       // convert four bytes starting at location 40 to a long integer
@@ -1077,10 +1081,22 @@ void sendNtpPacket(IPAddress &address)
 }
 
 
+void logNtpDrift(time_t ntp, time_t rtc, time_t nowBefore, const __FlashStringHelper* suffix) {
+  Serial.print(F("[NTP] NTP-RTC "));
+  Serial.print((long)ntp - (long)rtc);
+  Serial.print(F("s  RTC-now "));
+  Serial.print((long)rtc - (long)nowBefore);
+  Serial.print(F("s"));
+  if (suffix) {
+    Serial.print(F(", "));
+    Serial.println(suffix);
+  } else {
+    Serial.println();
+  }
+}
+
 void compareRTCwithNTP() {
   wdt_reset();
-  //Compare RTC to NTP, to set the RTC.
-  unsigned int diffNTPRTC = 0;
 
   if (CheckDST()) {
     timeZone = -7;
@@ -1090,44 +1106,40 @@ void compareRTCwithNTP() {
 
   returnStatus += "TZ: ";
   returnStatus += String(timeZone);
-  
+
+  time_t nowBefore = now();
   time_t timeRTC = RTC.get();
-  time_t timeNTP = getNtpTime();
+  time_t timeNTP = getNtpTime(true);
   if ((timeRTC == 0) or (timeNTP == 0)) {
-    // RTC and NTP will both return zero on error. Don't bother if either one is invalid / unreadable.
-    diffNTPRTC = 0;
     returnStatus += " RTC or NTP was 0. ";
-  } else if (timeNTP > timeRTC) {
-    diffNTPRTC = timeNTP - timeRTC;
-  } else {
-    diffNTPRTC = timeRTC - timeNTP;
+    return;
   }
-  if (diffNTPRTC > 0) {
-    returnStatus += F("NTP and RTC differ by ");
-    returnStatus += String(diffNTPRTC);
-    if (diffNTPRTC == 1) Serial.print(" second.");
-    if (diffNTPRTC >  1) Serial.print(" seconds.");
-    if (diffNTPRTC >  5) {
-      Serial.print("RTC time is ");
-      Serial.print(timeRTC);
-      Serial.print(", setting RTC to ");
-      Serial.print(timeNTP);
-      byte rtcSetStatus;
-      wdt_reset();
-      rtcSetStatus = RTC.set(timeNTP);
-      wdt_reset();
-      if (rtcSetStatus) {
-        Serial.print(" FAILED. Error code: ");
-        Serial.print(rtcSetStatus);
-        returnStatus += F(" - Failed! RTC status: ");
-        returnStatus += String(rtcSetStatus);
-      } else {
-        Serial.print(" done.");
-        setTime(timeNTP);
-        returnStatus += F("Done, RTC updated.");
-      }
+
+  long ntpRtcDrift = (long)timeNTP - (long)timeRTC;
+  long rtcNowDrift = (long)timeRTC - (long)nowBefore;
+  returnStatus += F(" NTP-RTC ");
+  returnStatus += String(ntpRtcDrift);
+  returnStatus += F("s RTC-now ");
+  returnStatus += String(rtcNowDrift);
+  returnStatus += F("s.");
+
+  unsigned int absNtpRtc = (ntpRtcDrift < 0) ? (unsigned int)(-ntpRtcDrift) : (unsigned int)ntpRtcDrift;
+  if (absNtpRtc > 5) {
+    wdt_reset();
+    byte rtcSetStatus = RTC.set(timeNTP);
+    wdt_reset();
+    if (rtcSetStatus) {
+      logNtpDrift(timeNTP, timeRTC, nowBefore, F("RTC update FAILED"));
+      returnStatus += F(" RTC set failed: ");
+      returnStatus += String(rtcSetStatus);
+    } else {
+      setTime(timeNTP);
+      logNtpDrift(timeNTP, timeRTC, nowBefore, F("RTC updated"));
+      returnStatus += F(" RTC updated.");
     }
-    Serial.println();
+  } else {
+    logNtpDrift(timeNTP, timeRTC, nowBefore, F("RTC unchanged"));
+    returnStatus += F(" RTC unchanged.");
   }
 }
 

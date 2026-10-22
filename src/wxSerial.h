@@ -35,3 +35,5 @@ bool checkEthIncomingData();
 bool serviceTelnetSession();
 void setTelnetHoldCommands(bool hold);
 void finishTelnetAfterUpload();
+time_t getNtpTime(bool quiet = false);
+void logNtpDrift(time_t ntp, time_t rtc, time_t nowBefore, const __FlashStringHelper* suffix);

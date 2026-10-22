@@ -63,8 +63,8 @@ const int EthStartupDelay = 5000; // Milliseconds to wait for Ethernet Shield to
 int minutesBeforeSunrise = 70;              // Minutes before sunrise to wake and start sending data. Should consider additional time because reboot happens every hour only -> might miss the sunrise.
 int minutesAfterSunset = 30;                // Minutes after sunset to stay awake before sleep().
 const unsigned int waitTimeIncomingClient = 2; // Grace seconds after upload if no client connected yet. Min 1.
-const unsigned long telnetIdleWarningMs = 100000; // Warn when idle this long (in-session only; not the listen window).
-const unsigned long telnetIdleTimeoutMs = 120000; // Drop telnet after idle this long (in-session only).
+const unsigned long telnetIdleWarningMs = 15000; // Warn when idle this long (in-session only; not the listen window).
+const unsigned long telnetIdleTimeoutMs = 20000; // Drop telnet after idle this long (in-session only).
 byte uploadRetryNum = 1; // Extra PUT attempts after a connect/write failure (0 = one try only).
 float battery_ma_offset = 30.0; // INA219 current measurements sometimes show an offset that needs correction. Battery_ma_offset [mA] will be added to the measured signal.
 
@@ -1360,10 +1360,12 @@ void runFiveMinuteUpload(byte& uploadStatus) {
 #ifndef SIMULATE_RTC
     if (rtc_available) {
       if (!rtc_got_update_from_ntp) {
-        ntp_time_temp = getNtpTime();
+        time_t rtcBefore = RTC.get();
+        time_t nowBefore = now();
+        ntp_time_temp = getNtpTime(true);
         if (isTimeValid(ntp_time_temp)) {
           RTC.set(ntp_time_temp);
-          wxLogTag(F("NTP"), F("RTC updated"));
+          logNtpDrift(ntp_time_temp, rtcBefore, nowBefore, F("RTC updated"));
           rtc_got_update_from_ntp = true;
           setSyncProvider([](){return RTC.get();});
         } else {
@@ -1544,9 +1546,6 @@ byte uploadWeather(String WeatherString)
     printUploadResult(51);
     return 51;
   }
-
-  Serial.print(F("[UP] freeRam="));
-  Serial.println(freeRam());
 
   String WeatherString2;
   WeatherString2 = WeatherString;

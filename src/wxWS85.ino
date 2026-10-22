@@ -245,9 +245,7 @@ void ws85LogUploadSessionSummary() {
   ws85LogVoltage();
   Serial.print(F("[WS85] serial events since last upload: "));
   Serial.println(ws85SerialEvents);
-  if (ws85SerialEvents == 0) {
-    Serial.println(F("[WS85] WARNING: no serial events since last upload"));
-  }
+
   ws85SerialEvents = 0;
 }
 
