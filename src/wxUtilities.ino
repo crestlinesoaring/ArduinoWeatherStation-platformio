@@ -368,13 +368,15 @@ void goToSleep(){
   // of storing a bogus number. The record starts fresh on each new day.
   if (voltsLowestSeenValid) {
     byte voltsNow = (byte)(voltsLowestSeen * 10.0);  // volts x 10, same scale as the stored value
-    byte voltsDay = EEPROM.read(eeVoltsLowestDay);
-    byte voltsStored = EEPROM.read(eeVoltsLowestSeen);
-    if (day() != voltsDay) {
-      EEPROM.put(eeVoltsLowestSeen, voltsNow);       // new day, start the record over
-      EEPROM.put(eeVoltsLowestDay, (byte)day());
-    } else if (voltsNow < voltsStored) {
-      EEPROM.put(eeVoltsLowestSeen, voltsNow);       // same day, keep the lowest seen
+    if (eeVoltsLowestStoredIsValid(voltsNow)) {
+      byte voltsDay = EEPROM.read(eeVoltsLowestDay);
+      byte voltsStored = EEPROM.read(eeVoltsLowestSeen);
+      if (day() != voltsDay) {
+        EEPROM.put(eeVoltsLowestSeen, voltsNow);       // new day, start the record over
+        EEPROM.put(eeVoltsLowestDay, (byte)day());
+      } else if (!eeVoltsLowestStoredIsValid(voltsStored) || voltsNow < voltsStored) {
+        EEPROM.put(eeVoltsLowestSeen, voltsNow);       // same day, keep the lowest seen
+      }
     }
   }
   ina219a_solar.enterPowerSave();       // powering down two INAs saves 2mA

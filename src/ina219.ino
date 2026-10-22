@@ -92,6 +92,11 @@ void ina219Poll() {
   ina219TakeSample();
 }
 
+void ina219ReadNow() {
+  ina219_lastReadMs = 0;
+  ina219Poll();
+}
+
 void finalizeInaMinute() {
   if (ina219_sampleCount > 0) {
     float n = (float)ina219_sampleCount;

@@ -135,8 +135,13 @@ const int eeTimeZone              = 95;  // new since V43, saves WX's TimeZone
 const int eeCamStatus             = 96;  // Byte camera control (on/off, etc)
 const int eeMinutesBeforeSunrise  = 100; // Char, from -120 minutes to +120 minutes
 const int eeMinutesAfterSunset    = 101; // Char, from -120 minutes to +120 minutes
-const int eeVoltsLowestSeen       = 102; // Byte, 0 to 254
+const int eeVoltsLowestSeen       = 102; // Byte, tenths of a volt (13.5 V → 135)
 const int eeVoltsLowestDay        = 103; // Byte, day of month
+const byte eeVoltsLowestBogus     = 200; // Legacy bad EEPROM from old 20.0 V default; not a real pack voltage
+
+inline bool eeVoltsLowestStoredIsValid(byte stored) {
+  return stored > 0 && stored < eeVoltsLowestBogus;
+}
 const int eeUploadRetryNum        = 104; // Byte, extra PUT attempts after failure (0-5)
 
 byte hardwareId = 255;            // Loaded from eeHardwareId; 255 = unset
@@ -345,7 +350,7 @@ float ina219a_solar_volts = 14.0f;
 float ina219a_solar_ma;
 float ina219b_battery_volts = 14.0f;
 float ina219b_battery_ma;
-float voltsLowestSeen = 20.0;
+float voltsLowestSeen = 99.0f;  // Running min since wake; high until first INA sample (never display without valid flag).
 bool voltsLowestSeenValid = false;  // True only after a real battery reading updated voltsLowestSeen.
 unsigned int ina219a_solar_MMAmillis = 0;
 unsigned int ina219a_solar_MMAloops = 0;
@@ -662,6 +667,7 @@ void setup()
   Serial.print(INA_READ_INTERVAL_SEC);
   Serial.println(F(" s (128x HW avg per read)"));
   delay(180); // first 128x conversion complete (see ina_avg_read.ino)
+  ina219ReadNow();  // Seed lowest-since-wake before loop() so status is not stuck at the sentinel.
 
   //Setup BME280 temperatue and humidity sensor A
   Serial.print(F("  BME280a external: status 0x")); usTemp = micros(); //jjjexternal 

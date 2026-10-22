@@ -7,4 +7,5 @@
 #endif
 
 void ina219Poll();
+void ina219ReadNow();  // One immediate sample (e.g. after setup) for lowest-voltage tracking.
 void finalizeInaMinute();

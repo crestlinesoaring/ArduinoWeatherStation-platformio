@@ -376,8 +376,21 @@ void handleRemoteCommand(char c, Stream &io, bool &quitSession) {
                 io.print(F(", mA: "));                     io.println(String(ina219a_solar_ma, 0));
               io.print(F("  Battery V: "));              io.print(String(ina219b_battery_volts, 2));
                 io.print(F(", mA: "));                     io.println(String(ina219b_battery_ma, 0));
-              io.print(F("  Lowest batt voltage since boot:  "));  io.println(String(voltsLowestSeen, 2));
-              io.print(F("  Lowest batt voltage last sleep:  "));  io.println(String(EEPROM.read(eeVoltsLowestSeen) / 10.0, 1));
+              io.print(F("  Lowest batt voltage since wake:  "));
+              if (voltsLowestSeenValid) {
+                io.println(String(voltsLowestSeen, 2));
+              } else {
+                io.println(F("n/a"));
+              }
+              io.print(F("  Lowest batt voltage today:       "));
+              {
+                byte voltsStored = EEPROM.read(eeVoltsLowestSeen);
+                if (eeVoltsLowestStoredIsValid(voltsStored)) {
+                  io.println(String(voltsStored / 10.0, 1));
+                } else {
+                  io.println(F("n/a"));
+                }
+              }
               io.print(F("  Lowest batt voltage day:  "));         io.println(String(EEPROM.read(eeVoltsLowestDay)));
               io.print(F("  Battery drain minutes: "));  io.print(String(battDrainMinutes));
                 io.print(F(", mAm: "));                    io.print(String(battDrainmA));
