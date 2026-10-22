@@ -1172,6 +1172,8 @@ void loop()
       Serial.print(F("  batt="));
       Serial.print(ina219b_battery_volts, 2);
       Serial.print(F("V"));
+      Serial.print(F("  mem="));
+      Serial.print(freeRam());
       if (shut_down_flag && ina219b_battery_volts < battery_critical_voltage) {
         Serial.print(F(" LOW"));
       }
