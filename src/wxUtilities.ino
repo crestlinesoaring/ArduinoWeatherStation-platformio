@@ -18,6 +18,16 @@ void finalizeWindSpeedMinute() {
   windSpeedMinuteCount = 0;
 }
 
+void finalizeInaMmaMinute() {
+  ina219_MMA_hz = ina219a_solar_MMAloops / 60.0f;
+  Serial.print(F("[INA] MMA samples/min: "));
+  Serial.print(ina219a_solar_MMAloops);
+  Serial.print(F(", rate: "));
+  Serial.print(ina219_MMA_hz, 1);
+  Serial.println(F(" Hz"));
+  ina219a_solar_MMAloops = 0;
+}
+
 // Block for ms milliseconds, resetting the watchdog about every 100 ms.
 void delayWithWdt(unsigned long ms)
 {
@@ -346,16 +356,21 @@ void goToSleep(){
   // Shut down or power down external peripherals
   // Should be done at some point by (de-)powering with Mega's pins
     
-  // Write the lowest voltage seen all day. Starts fresh each new day.
-  EEPROM.get(eeVoltsLowestDay, eeByteTemp);
-  if (day() == eeByteTemp) {
-    EEPROM.get(eeVoltsLowestSeen, eeByteTemp);
-    if ((byte)voltsLowestSeen < eeByteTemp) {
-      EEPROM.put(eeVoltsLowestSeen, (byte)(voltsLowestSeen * 10.0));
+  // Record the lowest battery voltage seen while awake (i.e. since the last sleep).
+  // voltsLowestSeen is only updated once the INA219 has actually been read, so if no
+  // reading was taken (e.g. we booted at night and went straight back to sleep) the
+  // value is still the unused default. Keep the previous record in that case instead
+  // of storing a bogus number. The record starts fresh on each new day.
+  if (voltsLowestSeenValid) {
+    byte voltsNow = (byte)(voltsLowestSeen * 10.0);  // volts x 10, same scale as the stored value
+    byte voltsDay = EEPROM.read(eeVoltsLowestDay);
+    byte voltsStored = EEPROM.read(eeVoltsLowestSeen);
+    if (day() != voltsDay) {
+      EEPROM.put(eeVoltsLowestSeen, voltsNow);       // new day, start the record over
+      EEPROM.put(eeVoltsLowestDay, (byte)day());
+    } else if (voltsNow < voltsStored) {
+      EEPROM.put(eeVoltsLowestSeen, voltsNow);       // same day, keep the lowest seen
     }
-  } else {
-    EEPROM.put(eeVoltsLowestSeen, (byte)(voltsLowestSeen * 10.0));
-    EEPROM.put(eeVoltsLowestDay, (byte)day());
   }
   ina219a_solar.enterPowerSave();       // powering down two INAs saves 2mA
   ina219b_battery.enterPowerSave();

@@ -360,6 +360,7 @@ float current_mA = 0;
 float loadvoltage = 0;
 float ina219_MMAtemp;
 float voltsLowestSeen = 20.0;
+bool voltsLowestSeenValid = false;  // True only after a real battery reading updated voltsLowestSeen.
 unsigned int ina219a_solar_MMAmillis = 0;
 unsigned int ina219a_solar_MMAloops = 0;
 float ina219_MMA_hz = 0;
@@ -1447,6 +1448,7 @@ void loop()
     if ( (ina219b_battery_volts < voltsLowestSeen)
      and (ina219b_battery_volts > 2.0) ) {
       voltsLowestSeen = ina219b_battery_volts;
+      voltsLowestSeenValid = true;
     }
     
 

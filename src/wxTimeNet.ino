@@ -396,14 +396,27 @@ bool checkEthIncomingData() {
                 incomingClient.print(F(", mA: "));                     incomingClient.println(String(ina219a_solar_ma, 0));
               incomingClient.print(F("  Battery V: "));              incomingClient.print(String(ina219b_battery_volts, 2));
                 incomingClient.print(F(", mA: "));                     incomingClient.println(String(ina219b_battery_ma, 0));
-              incomingClient.print(F("  Lowest batt voltage since boot:  "));  incomingClient.println(String(voltsLowestSeen, 2));
-              incomingClient.print(F("  Lowest batt voltage last sleep:  "));  incomingClient.println(String(EEPROM.read(eeVoltsLowestSeen) / 10.0, 1));
+              {
+                incomingClient.print(F("  Lowest batt voltage since boot:  "));
+                if (voltsLowestSeenValid) {
+                  incomingClient.println(String(voltsLowestSeen, 2));
+                } else {
+                  incomingClient.println(F("n/a (no battery reading yet)"));
+                }
+                incomingClient.print(F("  Lowest batt voltage last sleep:  "));
+                byte voltsLowestSeenEeprom = EEPROM.read(eeVoltsLowestSeen);
+                if (voltsLowestSeenEeprom == 255) {
+                  incomingClient.println(F("n/a (never recorded)"));
+                } else {
+                  incomingClient.println(String(voltsLowestSeenEeprom / 10.0, 1));
+                }
+              }
               incomingClient.print(F("  Lowest batt voltage day:  "));         incomingClient.println(String(EEPROM.read(eeVoltsLowestDay)));
               incomingClient.print(F("  Battery drain minutes: "));  incomingClient.print(String(battDrainMinutes));
                 incomingClient.print(F(", mAm: "));                    incomingClient.print(String(battDrainmA));
                 incomingClient.print(F(", mAh = "));                   incomingClient.println(String(battDrainmA / 60));
-              incomingClient.print(F("  INA219 reads last min: "));  incomingClient.print(ina219_avgReadHz, 2);
-              incomingClient.print(F(" Hz, this min so far: "));   incomingClient.println(String(ina219_sampleCount));
+              incomingClient.print(F("  INA219 reads last min: "));  incomingClient.print(ina219_MMA_hz, 1);
+              incomingClient.print(F(" Hz, this min so far: "));   incomingClient.println(String(ina219a_solar_MMAloops));
               incomingClient.print(F("  Temp internal: "));          incomingClient.println(String(bme280b.readTempC()));
               incomingClient.print(F("  Humidity int:  "));          incomingClient.println(String(bme280b.readFloatHumidity()));
               incomingClient.print(F("  Sunrise / Wake: "));
