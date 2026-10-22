@@ -346,6 +346,10 @@ float ina219a_solar_ma;
 float ina219b_battery_volts = 14.0f;
 float ina219b_battery_ma;
 float voltsLowestSeen = 20.0;
+bool voltsLowestSeenValid = false;  // True only after a real battery reading updated voltsLowestSeen.
+unsigned int ina219a_solar_MMAmillis = 0;
+unsigned int ina219a_solar_MMAloops = 0;
+float ina219_MMA_hz = 0;
 
 // volatiles are subject to modification by IRQs
 // jjj 22a volatile unsigned long raintime, rainlast, raininterval, rain;

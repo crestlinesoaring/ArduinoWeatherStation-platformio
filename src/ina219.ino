@@ -9,6 +9,7 @@ extern float ina219a_solar_ma;
 extern float ina219b_battery_volts;
 extern float ina219b_battery_ma;
 extern float voltsLowestSeen;
+extern bool voltsLowestSeenValid;
 
 unsigned int ina219_sampleCount = 0;
 unsigned int ina219_samplesLastMinute = 0;
@@ -71,6 +72,7 @@ static void ina219TakeSample() {
 
   if ((battV < voltsLowestSeen) && (battV > 2.0f)) {
     voltsLowestSeen = battV;
+    voltsLowestSeenValid = true;
   }
 
   float n = (float)ina219_sampleCount;
