@@ -650,7 +650,7 @@ void setup()
   //Setup INA219 voltage and current sensor(s)
   Serial.print(F("  INA219a solar: ")); usTemp = micros(); //jjjsolar
   ina219a_solar.begin();
-  Wire.setClock(400000); // 400 kHz I2C for the INA219 chips
+  // Wire.setClock(400000); // 400 kHz I2C; disabled, use Wire default 100 kHz
   ina219a_solar.setCalibration_32V_5A(); //jjjk INA couldn't get the public method going (32V_5A)
   ina219a_solar.setAmpAverage();
   ina219a_solar.setVoltAverage();
@@ -658,7 +658,7 @@ void setup()
 
   Serial.print(F("  INA219b battery: ")); usTemp = micros();
   ina219b_battery.begin();
-  Wire.setClock(400000); // 400 kHz I2C for the INA219 chips
+  // Wire.setClock(400000); // 400 kHz I2C; disabled, use Wire default 100 kHz
   ina219b_battery.setCalibration_16V_5A();
   ina219b_battery.setAmpAverage();
   ina219b_battery.setVoltAverage();
@@ -691,10 +691,8 @@ void setup()
   Serial.print(bme280b.begin(), HEX);
   Serial.print(F(", took ")); Serial.print(micros() - usTemp); Serial.println(F("us."));
 
-  // BME280::begin() calls Wire.begin(), which resets the I2C bus clock back to
-  // 100 kHz. Re-apply 400 kHz after the last Wire.begin() so the INA219 chips
-  // (and the rest of the bus) actually run at 400 kHz during operation.
-  Wire.setClock(400000);
+  // BME280::begin() calls Wire.begin(), which leaves the bus at the default 100 kHz.
+  // Wire.setClock(400000); // Re-apply 400 kHz after BME init if needed.
 
   #if RENOGY_POLLING_ENABLED
   renogyInit();
