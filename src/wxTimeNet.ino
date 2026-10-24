@@ -1035,6 +1035,13 @@ static void ensureNetworkForNtp(Stream &io) {
 time_t getNtpTime(bool quiet)
 {
   wdt_reset();
+  // Free W5500 sockets after HTTP PUTs so UDP NTP can bind (same bus as telnet TCP).
+  client.stop();
+  while (client.available()) {
+    wdt_reset();
+    client.read();
+  }
+  Udp.stop();
   Udp.begin(localPort);
   while (Udp.parsePacket() > 0) ; // discard any previously received packets
   if (!quiet) {

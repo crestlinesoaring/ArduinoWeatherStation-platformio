@@ -783,7 +783,7 @@ void setup()
     rtc_available = true;
     wxLogTag(F("TIME"), F("using RTC; NTP sync on first upload"));
     setSyncProvider([](){return RTC.get();});
-    setSyncInterval(300);           // Update system time often because it actually slews pretty fast; 4 second an hour is typical.
+    setSyncInterval(60);            // Re-read RTC via sync provider at most every 60s when now() runs.
     recentTime = now();
   } else {
     // RTC didn't work. Set NTP as the sync provider.
@@ -1027,6 +1027,14 @@ void loop()
 
     if(seconds > 59)
     {
+#ifndef SIMULATE_RTC
+      if (rtc_available) {
+        time_t rtcNow = RTC.get();
+        if (rtcNow != 0 && isTimeValid(rtcNow)) {
+          setTime(rtcNow);
+        }
+      }
+#endif
       seconds = seconds % 60; // sometimes the loop takes longer than 1 second.
       if(++minutes > 59) 
       {
@@ -1350,9 +1358,40 @@ void runFiveMinuteUpload(byte& uploadStatus) {
 
   if (!ethEnabled) enableEthernet();
   if (ethEnabled) {
-    msTemp = millis();
     bool wasJustRestarted = justRestarted;
     setTelnetHoldCommands(true);
+
+#ifndef SIMULATE_RTC
+    // NTP before PUTs: uploads hold TCP sockets; UDP NTP often failed when run after them.
+    if (rtc_available) {
+      if (!rtc_got_update_from_ntp) {
+        wxLogTag(F("NTP"), F("upload sync"));
+        time_t rtcBefore = RTC.get();
+        time_t nowBefore = now();
+        ntp_time_temp = getNtpTime(true);
+        if (isTimeValid(ntp_time_temp)) {
+          byte rtcSetStatus = RTC.set(ntp_time_temp);
+          if (!rtcSetStatus) {
+            setTime(ntp_time_temp);
+            logNtpDrift(ntp_time_temp, rtcBefore, nowBefore, F("RTC updated"));
+            rtc_got_update_from_ntp = true;
+            setSyncProvider([](){return RTC.get();});
+          } else {
+            logNtpDrift(ntp_time_temp, rtcBefore, nowBefore, F("RTC update FAILED"));
+            Serial.println(F("RTC update via NTP failed! Trying again during next data upload."));
+          }
+        } else {
+          Serial.println(F("RTC update via NTP failed! Trying again during next data upload."));
+        }
+        server.begin();
+      }
+    } else {
+      setArduinoTimeWithNtp();
+      server.begin();
+    }
+#endif
+
+    msTemp = millis();
     uploadCachedWeather(wxMin, uploadStatus);
     if (wasJustRestarted) {
       justRestarted = false;
@@ -1366,26 +1405,6 @@ void runFiveMinuteUpload(byte& uploadStatus) {
       }
       ethLastFailureCode = 0;
     }
-
-#ifndef SIMULATE_RTC
-    if (rtc_available) {
-      if (!rtc_got_update_from_ntp) {
-        time_t rtcBefore = RTC.get();
-        time_t nowBefore = now();
-        ntp_time_temp = getNtpTime(true);
-        if (isTimeValid(ntp_time_temp)) {
-          RTC.set(ntp_time_temp);
-          logNtpDrift(ntp_time_temp, rtcBefore, nowBefore, F("RTC updated"));
-          rtc_got_update_from_ntp = true;
-          setSyncProvider([](){return RTC.get();});
-        } else {
-          Serial.println(F("RTC update via NTP failed! Trying again during next data upload."));
-        }
-      }
-    } else {
-      setArduinoTimeWithNtp();
-    }
-#endif
 
     finishTelnetAfterUpload();
   } else {
