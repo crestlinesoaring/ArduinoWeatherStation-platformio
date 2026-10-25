@@ -12,7 +12,8 @@ extern float renogy_solar_volts;
 extern float renogy_solar_amps;
 extern bool renogy_connected;
 
-void renogyInit();
+// Returns true if Modbus probe succeeded and polling will run this session.
+bool renogyInit();
 void renogyPoll();
 void renogyFinalizeMinute();
 
