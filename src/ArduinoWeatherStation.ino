@@ -715,7 +715,7 @@ void setup()
 
   // turn on interrupts
   interrupts();
-
+  Serial.println("-------------------------------------------------------------------");
   Serial.print(startupMessage);
   Serial.print(F(" git="));
   Serial.println(VERSION_COMMIT);
