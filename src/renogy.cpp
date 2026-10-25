@@ -16,6 +16,7 @@ static uint16_t minuteVoltCount = 0;
 static float minuteAmpSum = 0;
 static uint16_t minuteAmpCount = 0;
 static unsigned long lastPollMillis = 0;
+static bool renogyUsable = false;
 
 static bool renogyReadOnce(float &volts, float &amps) {
   uint8_t result = renogyNode.readHoldingRegisters(0x100, RENOGY_DATA_REGISTER_COUNT);
@@ -27,15 +28,26 @@ static bool renogyReadOnce(float &volts, float &amps) {
   return false;
 }
 
-void renogyInit() {
+bool renogyInit() {
+#if !RENOGY_POLLING_ENABLED
+  renogyUsable = false;
+  return false;
+#endif
   Serial2.begin(9600);
   renogyNode.begin(RENOGY_MODBUS_ADDRESS, Serial2);
+  delay(100);
+
+  float volts = 0;
+  float amps = 0;
+  renogyUsable = renogyReadOnce(volts, amps);
+  return renogyUsable;
 }
 
 void renogyPoll() {
 #if !RENOGY_POLLING_ENABLED
   return;
 #endif
+  if (!renogyUsable) return;
   if (lastPollMillis + RENOGY_POLL_INTERVAL_MS > millis()) return;
   lastPollMillis = millis();
 
@@ -56,6 +68,12 @@ void renogyFinalizeMinute() {
   renogy_connected = false;
   return;
 #endif
+  if (!renogyUsable) {
+    renogy_solar_volts = 0;
+    renogy_solar_amps = 0;
+    renogy_connected = false;
+    return;
+  }
   if (minuteVoltCount > 0) {
     renogy_solar_volts = minuteVoltSum / minuteVoltCount;
     renogy_connected = true;

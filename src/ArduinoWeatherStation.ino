@@ -695,8 +695,11 @@ void setup()
   // Wire.setClock(400000); // Re-apply 400 kHz after BME init if needed.
 
   #if RENOGY_POLLING_ENABLED
-  renogyInit();
-  Serial.println(F("  Renogy CC on Serial2 @ 9600 baud, modbus addr 255"));
+  if (renogyInit()) {
+    Serial.println(F("  Renogy CC on Serial2 @ 9600 baud, modbus addr 255"));
+  } else {
+    Serial.println(F("  Renogy CC not responding on Modbus; polling disabled"));
+  }
   #endif
 
   seconds = 0;
@@ -712,6 +715,10 @@ void setup()
 
   // turn on interrupts
   interrupts();
+
+  Serial.print(startupMessage);
+  Serial.print(F(" git="));
+  Serial.println(VERSION_COMMIT);
 
   Serial.print(F("[BOOT] ready at "));
   Serial.print(millis());
