@@ -22,4 +22,4 @@ workflows.
 
     src/            sketch sources (ArduinoWeatherStation.ino + tabs, pins.h, Marshall.h)
     libraries/      vendored third-party libraries, committed directly in the repo
-    platformio.ini  build configuration (board, framework, library paths)
+    platformio.ini  root PIO config; per-target envs in platformio/*.ini

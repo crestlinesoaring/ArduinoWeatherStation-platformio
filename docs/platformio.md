@@ -1,8 +1,9 @@
 # PlatformIO guide
 
 This project builds the Arduino Weather Station firmware for an **Arduino Mega 2560**
-using [PlatformIO](https://platformio.org) on Windows. Configuration lives in
-`platformio.ini`; sketch sources are under `src/`.
+using [PlatformIO](https://platformio.org) on Windows. Configuration lives in `platformio.ini` (shared defaults) and
+`platformio/*.ini` (one file per flash target, plus its `*-eeprom-net` writer env
+where applicable). Sketch sources are under `src/`.
 
 Run commands from **PowerShell**, **cmd**, or the PlatformIO IDE terminal in the
 project root.
@@ -29,9 +30,10 @@ Fresh clone: libraries are vendored under `libraries/`, so no extra library setu
 | `gb5_lab` | Brain box 5 — IP `192.168.222.222`, HW version 5, betaOne |
 | `gb6_lab` | Brain box 6 — IP `192.168.222.226`, HW version 6, betaThree |
 | `*-eeprom-net` | Internal one-shot writer sketches (used by `eeprom-net`, not run directly) |
+| `renogy_test` | Standalone Renogy Modbus test on Serial2 (`src/renogy-test/`) |
 
 Lab envs (`tavis`, `gb5_lab`, `gb6_lab`) override station settings via `build_flags`
-in `platformio.ini` instead of `Marshall.h`.
+in `platformio/<env>.ini` instead of `Marshall.h`.
 
 Pick an environment with `-e`:
 
@@ -70,7 +72,7 @@ pio run -e gb5_lab -t upload --upload-port COM5
 pio device monitor -e gb5_lab --port COM5
 ```
 
-Example in `platformio.ini` (uncomment or add under `[env:gb5_lab]`):
+Example in `platformio/gb5_lab.ini` (uncomment or add under `[env:gb5_lab]`):
 
 ```ini
 upload_port = COM5
@@ -198,7 +200,7 @@ scripts\telnet-snipe.cmd -StationHost 192.168.2.227
 
 ## Feature flags
 
-Common toggles in `platformio.ini` under `[env:mega] build_flags`:
+Common toggles in `platformio/mega.ini` under `[env:mega] build_flags`:
 
 | Flag | Effect |
 |---|---|
@@ -214,6 +216,18 @@ block of `ArduinoWeatherStation.ino`.
 Lab envs also set per-board flags such as `HW_VERSION`, `WX_BETA_TEXT`, `IP_GW`,
 `IP_Q3`, `IP_WX`, and optionally `MAC_6`.
 
+### `renogy_test` — Renogy Modbus bench check
+
+Flashes a minimal sketch that probes the charge controller on **Serial2** (9600 baud,
+Modbus address **255**) with the same register map as production `renogy.cpp`.
+
+```powershell
+pio run -e renogy_test -t upload --upload-port COM5
+pio device monitor -e renogy_test --port COM5
+```
+
+Re-flash the main firmware when finished (`pio run -e tavis -t upload`, etc.).
+
 ## Serial monitor logging
 
 All envs use `monitor_filters = default, log2file_env`. Each monitor session writes a
@@ -227,6 +241,9 @@ logs\<env>-device-monitor-YYMMDD-HHMMSS.log
 
 ```
 src\                  Sketch sources (.ino tabs, pins.h, Marshall.h)
+src\renogy-test\      Standalone Renogy Modbus test (env `renogy_test`)
+platformio\           Per-target PlatformIO env files (`mega.ini`, `tavis.ini`, …)
+platformio.ini        Root PIO config (`extra_configs`, monitor defaults)
 libraries\            Vendored third-party libraries
 scripts\              PlatformIO helper scripts (hex→bin, EEPROM, TFTP)
 monitor\              Custom serial monitor filters

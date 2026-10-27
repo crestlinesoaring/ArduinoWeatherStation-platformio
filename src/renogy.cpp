@@ -1,11 +1,15 @@
 #include "renogy.h"
 #include <ModbusMaster.h>
+#include <avr/wdt.h>
 
 // Renogy Wanderer RS232/Modbus on Mega Serial2 (9600 baud, slave address 255).
 static ModbusMaster renogyNode;
 static const uint8_t RENOGY_MODBUS_ADDRESS = 255;
 static const uint32_t RENOGY_DATA_REGISTER_COUNT = 9; // through solar amps at index 8
 static const unsigned long RENOGY_POLL_INTERVAL_MS = 1000;
+static const uint8_t RENOGY_BOOT_PROBE_ATTEMPTS = 5;
+static const unsigned long RENOGY_BOOT_PROBE_GAP_MS = 500;
+static const unsigned long RENOGY_BOOT_INITIAL_SETTLE_MS = 200;
 
 float renogy_solar_volts = 0;
 float renogy_solar_amps = 0;
@@ -28,6 +32,29 @@ static bool renogyReadOnce(float &volts, float &amps) {
   return false;
 }
 
+static void renogyDelayBoot(unsigned long ms) {
+  unsigned long start = millis();
+  while (millis() - start < ms) {
+    wdt_reset();
+    delay(50);
+  }
+}
+
+static bool renogyProbeAtBoot() {
+  for (uint8_t attempt = 0; attempt < RENOGY_BOOT_PROBE_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      renogyDelayBoot(RENOGY_BOOT_PROBE_GAP_MS);
+    }
+    float volts = 0;
+    float amps = 0;
+    if (renogyReadOnce(volts, amps)) {
+      return true;
+    }
+    wdt_reset();
+  }
+  return false;
+}
+
 bool renogyInit() {
 #if !RENOGY_POLLING_ENABLED
   renogyUsable = false;
@@ -35,11 +62,9 @@ bool renogyInit() {
 #endif
   Serial2.begin(9600);
   renogyNode.begin(RENOGY_MODBUS_ADDRESS, Serial2);
-  delay(100);
+  renogyDelayBoot(RENOGY_BOOT_INITIAL_SETTLE_MS);
 
-  float volts = 0;
-  float amps = 0;
-  renogyUsable = renogyReadOnce(volts, amps);
+  renogyUsable = renogyProbeAtBoot();
   return renogyUsable;
 }
 
