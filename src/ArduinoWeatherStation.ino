@@ -1292,31 +1292,6 @@ void loop()
         }
 
       } // End "new minute()" (clock minute, not runtime minute)
-
-#ifndef BENCH_MODE
-      // Five-minute upload runs on WX rollover (after boundary minute is cached). Prime links here.
-      if (timeStatus() == timeSet && millis() > 180000) {
-        static byte wifiPrimedMinute = 255;
-        byte wxMin = minute();
-        byte wxSec = second();
-        if (wxMin % 5 == 4 && wxSec == wifiStartSecond && wifiPrimedMinute != wxMin) {
-          wifiPrimedMinute = wxMin;
-          uploadPending = true;
-          enableWifi();
-        }
-        static byte ethPrimedMinute = 255;
-        if (wxMin % 5 == 4 && wxSec >= ethStartSecond && ethPrimedMinute != wxMin) {
-          ethPrimedMinute = wxMin;
-          enableEthernet();
-          if (uploadPending) {
-            setTelnetHoldCommands(true);
-          }
-        }
-        if (ethEnabled && uploadPending) {
-          pollTelnetAccept();
-        }
-      }
-#endif
     }
 
    /** 
@@ -1333,6 +1308,10 @@ void loop()
 
   ina219Poll();
 
+#ifndef BENCH_MODE
+  primeUploadNetworkLinks();
+#endif
+
   loopCounter++;
 
 }// END OF LOOP()
@@ -1347,6 +1326,41 @@ void loop()
 // HELPER FUNCTIONS
 //*****************
 
+#ifndef BENCH_MODE
+// Pre-upload WiFi/Ethernet schedule (:x4:10 / :x4:55). Run every loop() so a slow 1 Hz tick
+// cannot skip the exact second; once-per-minute guards prevent duplicate enable calls.
+static void primeUploadNetworkLinks() {
+  if (timeStatus() != timeSet || millis() <= 180000UL) {
+    return;
+  }
+
+  const byte wxMin = minute();
+  if (wxMin % 5 != 4) {
+    return;
+  }
+
+  const byte wxSec = second();
+  static byte wifiPrimedMinute = 255;
+  static byte ethPrimedMinute = 255;
+
+  if (wxSec >= wifiStartSecond && wifiPrimedMinute != wxMin) {
+    wifiPrimedMinute = wxMin;
+    uploadPending = true;
+    enableWifi();
+  }
+  if (wxSec >= ethStartSecond && ethPrimedMinute != wxMin) {
+    ethPrimedMinute = wxMin;
+    enableEthernet();
+    if (uploadPending) {
+      setTelnetHoldCommands(true);
+    }
+  }
+  if (ethEnabled && uploadPending) {
+    pollTelnetAccept();
+  }
+}
+#endif
+
 void runFiveMinuteUpload(byte& uploadStatus) {
   static byte lastUploadMinute = 255;
   byte wxMin = minute();
@@ -1356,6 +1370,9 @@ void runFiveMinuteUpload(byte& uploadStatus) {
 #ifndef BENCH_MODE
   uploadPending = true;
   wxLogSection(F("UPLOAD"));
+  if (!wifiEnabled && !wifiStartTime) {
+    enableWifi();
+  }
   if (wifiStartTime && (millis() - wifiStartTime) / 1000 >= wifiStartupDelay) {
     wxLogTag(F("NET"), F("wifi ready"));
     wifiStartTime = 0;
