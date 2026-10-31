@@ -2,10 +2,14 @@
 #include <ModbusMaster.h>
 #include <avr/wdt.h>
 
-// Renogy Wanderer RS232/Modbus on Mega Serial2 (9600 baud, slave address 255).
+// Renogy RS232/Modbus on Mega Serial2 (9600 baud, slave address 255).
+// Holding registers 0x100..0x108:
+//   0x100 SOC, 0x101 battery V, 0x102 charge A, 0x103 temperature,
+//   0x104 load V, 0x105 load A, 0x106 load W,
+//   0x107 solar V, 0x108 solar A.
 static ModbusMaster renogyNode;
 static const uint8_t RENOGY_MODBUS_ADDRESS = 255;
-static const uint32_t RENOGY_DATA_REGISTER_COUNT = 9; // through solar amps at index 8
+static const uint32_t RENOGY_DATA_REGISTER_COUNT = 9;
 static const unsigned long RENOGY_POLL_INTERVAL_MS = 1000;
 static const uint8_t RENOGY_BOOT_PROBE_ATTEMPTS = 5;
 static const unsigned long RENOGY_BOOT_PROBE_GAP_MS = 500;
@@ -13,20 +17,35 @@ static const unsigned long RENOGY_BOOT_INITIAL_SETTLE_MS = 200;
 
 float renogy_solar_volts = 0;
 float renogy_solar_amps = 0;
+float renogy_load_volts = 0;
+float renogy_load_amps = 0;
 bool renogy_connected = false;
 
 static float minuteVoltSum = 0;
 static uint16_t minuteVoltCount = 0;
 static float minuteAmpSum = 0;
 static uint16_t minuteAmpCount = 0;
+static float minuteLoadVoltSum = 0;
+static uint16_t minuteLoadVoltCount = 0;
+static float minuteLoadAmpSum = 0;
+static uint16_t minuteLoadAmpCount = 0;
 static unsigned long lastPollMillis = 0;
 static bool renogyUsable = false;
 
-static bool renogyReadOnce(float &volts, float &amps) {
+struct RenogySample {
+  float solarVolts;
+  float solarAmps;
+  float loadVolts;
+  float loadAmps;
+};
+
+static bool renogyReadOnce(RenogySample &sample) {
   uint8_t result = renogyNode.readHoldingRegisters(0x100, RENOGY_DATA_REGISTER_COUNT);
   if (result == renogyNode.ku8MBSuccess) {
-    volts = renogyNode.getResponseBuffer(7) * 0.1f;
-    amps = renogyNode.getResponseBuffer(8) * 0.01f;
+    sample.solarVolts = renogyNode.getResponseBuffer(7) * 0.1f;
+    sample.solarAmps = renogyNode.getResponseBuffer(8) * 0.01f;
+    sample.loadVolts = renogyNode.getResponseBuffer(4) * 0.1f;
+    sample.loadAmps = renogyNode.getResponseBuffer(5) * 0.01f;
     return true;
   }
   return false;
@@ -45,9 +64,8 @@ static bool renogyProbeAtBoot() {
     if (attempt > 0) {
       renogyDelayBoot(RENOGY_BOOT_PROBE_GAP_MS);
     }
-    float volts = 0;
-    float amps = 0;
-    if (renogyReadOnce(volts, amps)) {
+    RenogySample sample = {};
+    if (renogyReadOnce(sample)) {
       return true;
     }
     wdt_reset();
@@ -76,26 +94,33 @@ void renogyPoll() {
   if (lastPollMillis + RENOGY_POLL_INTERVAL_MS > millis()) return;
   lastPollMillis = millis();
 
-  float volts = 0;
-  float amps = 0;
-  if (!renogyReadOnce(volts, amps)) return;
+  RenogySample sample = {};
+  if (!renogyReadOnce(sample)) return;
 
-  minuteVoltSum += volts;
+  minuteVoltSum += sample.solarVolts;
   minuteVoltCount++;
-  minuteAmpSum += amps;
+  minuteAmpSum += sample.solarAmps;
   minuteAmpCount++;
+  minuteLoadVoltSum += sample.loadVolts;
+  minuteLoadVoltCount++;
+  minuteLoadAmpSum += sample.loadAmps;
+  minuteLoadAmpCount++;
 }
 
 void renogyFinalizeMinute() {
 #if !RENOGY_POLLING_ENABLED
   renogy_solar_volts = 0;
   renogy_solar_amps = 0;
+  renogy_load_volts = 0;
+  renogy_load_amps = 0;
   renogy_connected = false;
   return;
 #endif
   if (!renogyUsable) {
     renogy_solar_volts = 0;
     renogy_solar_amps = 0;
+    renogy_load_volts = 0;
+    renogy_load_amps = 0;
     renogy_connected = false;
     return;
   }
@@ -113,8 +138,24 @@ void renogyFinalizeMinute() {
     renogy_solar_amps = 0;
   }
 
+  if (minuteLoadVoltCount > 0) {
+    renogy_load_volts = minuteLoadVoltSum / minuteLoadVoltCount;
+  } else {
+    renogy_load_volts = 0;
+  }
+
+  if (minuteLoadAmpCount > 0) {
+    renogy_load_amps = minuteLoadAmpSum / minuteLoadAmpCount;
+  } else {
+    renogy_load_amps = 0;
+  }
+
   minuteVoltSum = 0;
   minuteVoltCount = 0;
   minuteAmpSum = 0;
   minuteAmpCount = 0;
+  minuteLoadVoltSum = 0;
+  minuteLoadVoltCount = 0;
+  minuteLoadAmpSum = 0;
+  minuteLoadAmpCount = 0;
 }

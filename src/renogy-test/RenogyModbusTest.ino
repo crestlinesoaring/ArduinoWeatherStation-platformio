@@ -17,6 +17,13 @@ static const unsigned long BOOT_SETTLE_MS = 200;
 
 static ModbusMaster renogyNode;
 
+struct RenogySample {
+  float solarVolts;
+  float solarAmps;
+  float loadVolts;
+  float loadAmps;
+};
+
 static const __FlashStringHelper *modbusResultName(uint8_t code) {
   switch (code) {
     case 0x00: return F("success");
@@ -32,14 +39,28 @@ static const __FlashStringHelper *modbusResultName(uint8_t code) {
   }
 }
 
-static bool renogyReadOnce(float &volts, float &amps, uint8_t &resultCode) {
+static bool renogyReadOnce(RenogySample &sample, uint8_t &resultCode) {
   resultCode = renogyNode.readHoldingRegisters(RENOGY_FIRST_REG, RENOGY_REG_COUNT);
   if (resultCode == renogyNode.ku8MBSuccess) {
-    volts = renogyNode.getResponseBuffer(7) * 0.1f;
-    amps = renogyNode.getResponseBuffer(8) * 0.01f;
+    sample.solarVolts = renogyNode.getResponseBuffer(7) * 0.1f;
+    sample.solarAmps = renogyNode.getResponseBuffer(8) * 0.01f;
+    sample.loadVolts = renogyNode.getResponseBuffer(4) * 0.1f;
+    sample.loadAmps = renogyNode.getResponseBuffer(5) * 0.01f;
     return true;
   }
   return false;
+}
+
+static void printReadings(const RenogySample &sample) {
+  Serial.print(F("solar="));
+  Serial.print(sample.solarVolts, 1);
+  Serial.print(F(" V  "));
+  Serial.print(sample.solarAmps, 2);
+  Serial.print(F(" A  load="));
+  Serial.print(sample.loadVolts, 1);
+  Serial.print(F(" V  "));
+  Serial.print(sample.loadAmps, 2);
+  Serial.print(F(" A"));
 }
 
 static bool probeAtBoot() {
@@ -48,17 +69,14 @@ static bool probeAtBoot() {
     if (attempt > 1) {
       delay(BOOT_PROBE_GAP_MS);
     }
-    float volts = 0;
-    float amps = 0;
+    RenogySample sample = {};
     uint8_t code = 0;
-    if (renogyReadOnce(volts, amps, code)) {
+    if (renogyReadOnce(sample, code)) {
       Serial.print(F("[renogy-test] probe OK on attempt "));
       Serial.print(attempt);
-      Serial.print(F("  solar="));
-      Serial.print(volts, 1);
-      Serial.print(F(" V  "));
-      Serial.print(amps, 2);
-      Serial.println(F(" A"));
+      Serial.print(F("  "));
+      printReadings(sample);
+      Serial.println();
       return true;
     }
     Serial.print(F("[renogy-test] attempt "));
@@ -97,15 +115,12 @@ void loop() {
   }
   lastPoll = millis();
 
-  float volts = 0;
-  float amps = 0;
+  RenogySample sample = {};
   uint8_t code = 0;
-  if (renogyReadOnce(volts, amps, code)) {
-    Serial.print(F("[renogy-test] OK  solar="));
-    Serial.print(volts, 1);
-    Serial.print(F(" V  "));
-    Serial.print(amps, 2);
-    Serial.println(F(" A"));
+  if (renogyReadOnce(sample, code)) {
+    Serial.print(F("[renogy-test] OK  "));
+    printReadings(sample);
+    Serial.println();
   } else {
     Serial.print(F("[renogy-test] ERR "));
     Serial.print(modbusResultName(code));

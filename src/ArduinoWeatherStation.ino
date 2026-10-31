@@ -282,7 +282,9 @@ volatile byte windClicks = 0;
  * 20: Camera / Ubiquiti status flags (U, S, N, B, X, O, T=...)
  * 21: Consecutive battery drain minutes (when draining)
  * 22: Net battery drain since boot (mAh, battDrainmA/60)
- * 23+: failures, reboot marker, etc.
+ * 23: Renogy charge controller load voltage (V), when RENOGY_POLLING_ENABLED
+ * 24: Renogy charge controller load amps (A), when RENOGY_POLLING_ENABLED
+ * 25+: failures, reboot marker, etc.
  */
 
 float windSpeedAvg = 0;
@@ -1986,7 +1988,17 @@ String getWeatherString() {
   weatherString += String(charComma);
   weatherString += String(battDrainmA / 60.0, 1);
 
-  // 22+: Assorted info and error values
+#if RENOGY_POLLING_ENABLED
+  // 23: Renogy charge controller load voltage (V)
+  weatherString += String(charComma);
+  weatherString += String(renogy_load_volts, 1);
+
+  // 24: Renogy charge controller load amps (A)
+  weatherString += String(charComma);
+  weatherString += String(renogy_load_amps, 2);
+#endif
+
+  // 23+/25+: Assorted info and error values
 
   // add socket status as 8 hex chars
   if (wifiEnabled) {
