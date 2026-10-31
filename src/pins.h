@@ -22,6 +22,8 @@ bool ws85ConsumeFrame();
 float ws85SpeedMph();
 float ws85GustMph();
 int ws85Direction();
+void ws85FinalizeDirectionMinute();
+int ws85DirectionMinuteAvg();
 float ws85TempC();
 float ws85RainMm();
 float ws85CapVoltage();

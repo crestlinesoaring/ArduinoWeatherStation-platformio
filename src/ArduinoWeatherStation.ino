@@ -1854,10 +1854,15 @@ String getWeatherString() {
 
   // 5: wind direction, 1 minute average
   weatherString += String(charComma);
-  if ((winddir < 10 ) and (winddir >= 0)) weatherString += String("0"); //pad with zeros to keep formatting nicer
-  if ((winddir < 100) and (winddir >= 0)) weatherString += String("0"); //pad with zeros to keep formatting nicer
-  weatherString += String(winddir);
-  put_winddir(wxMinute, winddir);
+#ifdef ANEMO_WS85
+  int windDirForUpload = ws85DirectionMinuteAvg();
+#else
+  int windDirForUpload = winddir;
+#endif
+  if ((windDirForUpload < 10 ) and (windDirForUpload >= 0)) weatherString += String("0"); //pad with zeros to keep formatting nicer
+  if ((windDirForUpload < 100) and (windDirForUpload >= 0)) weatherString += String("0"); //pad with zeros to keep formatting nicer
+  weatherString += String(windDirForUpload);
+  put_winddir(wxMinute, windDirForUpload);
 
   // 6: temperature, F, outside, instant
   weatherString += String(charComma);

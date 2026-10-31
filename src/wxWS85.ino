@@ -5,9 +5,17 @@
 
 #ifdef ANEMO_WS85
 
+#include <math.h>
+
 #define WS85_SERIAL Serial1
 
 // Wind speed is averaged over each clock minute in the main sketch.
+// Wind direction: vector mean (sum of sin/cos), same as RAK4631 ws8x.cpp.
+static double ws85DirSumSin = 0;
+static double ws85DirSumCos = 0;
+static int ws85DirSampleCount = 0;
+static int ws85DirMinuteAvg = 0;
+
 static int ws85Dir = 0;
 static float ws85SpeedMps = 0;
 static float ws85GustMps = 0;
@@ -122,10 +130,17 @@ void ws85ParseLine(const String &line) {
   val.trim();
 
   if (key == "WindDir") {
-    ws85Dir = val.toInt();
-    ws85Valid = true;
-    ws85LastMs = millis();
-    ws85HaveDir = true;
+    float windDir = val.toFloat();
+    if (windDir >= 0.0f && windDir <= 360.0f) {
+      ws85Dir = (int)(windDir + 0.5f);
+      double radians = windDir * (M_PI / 180.0);
+      ws85DirSumSin += sin(radians);
+      ws85DirSumCos += cos(radians);
+      ws85DirSampleCount++;
+      ws85Valid = true;
+      ws85LastMs = millis();
+      ws85HaveDir = true;
+    }
   } else if (key == "WindSpeed") {
     ws85SpeedMps = val.toFloat();
     ws85HaveSpeed = true;
@@ -192,6 +207,29 @@ float ws85GustMph() {
 
 int ws85Direction() {
   return ws85Dir;
+}
+
+void ws85FinalizeDirectionMinute() {
+  if (ws85DirSampleCount > 0) {
+    double avgSin = ws85DirSumSin / ws85DirSampleCount;
+    double avgCos = ws85DirSumCos / ws85DirSampleCount;
+    double avgRadians = atan2(avgSin, avgCos);
+    float dirAvg = (float)(avgRadians * 180.0 / M_PI);
+    if (dirAvg < 0.0f) {
+      dirAvg += 360.0f;
+    }
+    ws85DirMinuteAvg = (int)(dirAvg + 0.5f);
+    if (ws85DirMinuteAvg >= 360) {
+      ws85DirMinuteAvg = 0;
+    }
+  }
+  ws85DirSumSin = 0;
+  ws85DirSumCos = 0;
+  ws85DirSampleCount = 0;
+}
+
+int ws85DirectionMinuteAvg() {
+  return ws85DirMinuteAvg;
 }
 
 float ws85TempC() {
