@@ -16,6 +16,9 @@ void finalizeWindSpeedMinute() {
   }
   windSpeedMinuteSum = 0;
   windSpeedMinuteCount = 0;
+#ifdef ANEMO_WS85
+  ws85FinalizeDirectionMinute();
+#endif
 }
 
 void finalizeInaMmaMinute() {
