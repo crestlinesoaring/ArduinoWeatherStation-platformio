@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weather station — daily graphs</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8f9fa;
+      --card: #ffffff;
+      --text: #1a1a2e;
+      --muted: #5c6370;
+      --border: #e1e4e8;
+      --accent: #2563eb;
+      --accent-light: #eff6ff;
+      --danger: #dc2626;
+      --danger-light: #fef2f2;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 1.5rem 1rem 3rem;
+    }
+
+    .container { max-width: 1100px; margin: 0 auto; }
+
+    header { margin-bottom: 1.25rem; }
+    header h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.35rem; }
+    header p { color: var(--muted); font-size: 0.92rem; }
+
+    .controls {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      align-items: flex-end;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .checkbox-label {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 500;
+      padding-bottom: 0.35rem;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      width: 1rem;
+      height: 1rem;
+    }
+
+    select, input[type="date"], input[type="file"] {
+      font: inherit;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      min-width: 10rem;
+    }
+
+    button {
+      font: inherit;
+      font-weight: 600;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button:hover { filter: brightness(1.05); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .status {
+      flex: 1 1 100%;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    .status.error {
+      color: var(--danger);
+      background: var(--danger-light);
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+    }
+
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1rem 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .chart-card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    .chart-wrap { position: relative; height: 280px; }
+
+    .meta {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 0.5rem;
+    }
+
+    code {
+      font-family: "SF Mono", SFMono-Regular, Consolas, Menlo, monospace;
+      font-size: 0.85em;
+      background: #f1f3f5;
+      padding: 0.12em 0.35em;
+      border-radius: 3px;
+    }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-top: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Weather station graphs</h1>
+      <p>
+        Plots minute data from <code>wxYYYYMMDD.dat</code> files
+        (same CSV layout as <code>getWeatherString()</code> in the firmware).
+      </p>
+    </header>
+
+    <div class="controls">
+      <label>
+        Site (beta)
+        <select id="site">
+          <option value="betaOne">betaOne</option>
+          <option value="betaTwo">betaTwo</option>
+          <option value="betaThree" selected>betaThree</option>
+        </select>
+      </label>
+      <label>
+        Date
+        <input type="date" id="date">
+      </label>
+      <label class="checkbox-label">
+        <span>Refresh from flymarshall</span>
+        <input type="checkbox" id="refresh">
+      </label>
+      <label>
+        Or local file
+        <input type="file" id="fileInput" accept=".dat,text/plain">
+      </label>
+      <p class="status" id="status">Choose site and date — loads via CGI (flymarshall fetch on the server).</p>
+    </div>
+
+    <div class="chart-card">
+      <h2>Wind</h2>
+      <div class="chart-wrap"><canvas id="windChart"></canvas></div>
+      <p class="meta">Avg speed and 5‑min gust (mph); direction (°).</p>
+    </div>
+
+    <div class="chart-card">
+      <h2>Brain box — temperature &amp; humidity</h2>
+      <div class="chart-wrap"><canvas id="climateChart"></canvas></div>
+    </div>
+
+    <div class="chart-card">
+      <h2>Power — voltages</h2>
+      <div class="chart-wrap"><canvas id="voltChart"></canvas></div>
+      <p class="meta">INA219 solar/battery and Renogy charge controller readings.</p>
+    </div>
+
+    <div class="chart-card">
+      <h2>Power — currents</h2>
+      <div class="chart-wrap"><canvas id="currentChart"></canvas></div>
+      <p class="meta">Solar and battery mA (INA219); Renogy panel and load amps.</p>
+    </div>
+
+    <footer>
+      Upload this folder as one unit (e.g. <code>wildc.net/wx/</code>).
+      Cached files land in <code>wx-data/</code>.
+    </footer>
+  </div>
+
+  <script>
+    /** @typedef {{ t: Date, parts: string[], line: string }} WxRow */
+
+    const charts = {};
+    let loadSeq = 0;
+    let loadTimer = null;
+
+    function parseNum(raw) {
+      if (raw == null) return null;
+      const s = String(raw).trim();
+      if (!s) return null;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function parseSignedInt(raw) {
+      if (raw == null) return null;
+      const s = String(raw).trim();
+      if (!s) return null;
+      const n = parseInt(s, 10);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    /** @param {string} line @returns {WxRow | null} */
+    function parseLine(line) {
+      const parts = line.split(",");
+      if (parts.length < 12) return null;
+      const timeS = parts[0].trim();
+      const dateS = parts[1].trim();
+      if (!timeS.includes(":") || !dateS.includes("/")) return null;
+      const [hourS, minuteS] = timeS.split(":");
+      const [monthS, dayS, yearS] = dateS.split("/");
+      const t = new Date(
+        Number(yearS),
+        Number(monthS) - 1,
+        Number(dayS),
+        Number(hourS),
+        Number(minuteS),
+        0,
+        0
+      );
+      if (Number.isNaN(t.getTime())) return null;
+      return { t, parts, line };
+    }
+
+    /** @param {WxRow[]} rows */
+    function dedupeByMinute(rows) {
+      const byKey = new Map();
+      for (const row of rows) {
+        const key = row.t.getTime();
+        byKey.set(key, row);
+      }
+      return [...byKey.values()].sort((a, b) => a.t - b.t);
+    }
+
+    /** @param {string} text @param {Date | null} filterDate */
+    function parseDat(text, filterDate) {
+      const rows = [];
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const row = parseLine(trimmed);
+        if (!row) continue;
+        if (filterDate) {
+          const d = row.t;
+          if (
+            d.getFullYear() !== filterDate.getFullYear() ||
+            d.getMonth() !== filterDate.getMonth() ||
+            d.getDate() !== filterDate.getDate()
+          ) {
+            continue;
+          }
+        }
+        rows.push(row);
+      }
+      return dedupeByMinute(rows);
+    }
+
+    function field(row, index) {
+      return row.parts[index] ?? "";
+    }
+
+    function chartDefaults() {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: {
+            type: "time",
+            time: { unit: "hour", displayFormats: { hour: "HH:mm" } },
+            ticks: { maxRotation: 0 },
+          },
+        },
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: {
+            callbacks: {
+              title(items) {
+                if (!items.length) return "";
+                const x = items[0].parsed.x;
+                return new Date(x).toLocaleString();
+              },
+            },
+          },
+        },
+      };
+    }
+
+    function destroyChart(id) {
+      if (charts[id]) {
+        charts[id].destroy();
+        delete charts[id];
+      }
+    }
+
+    /** @param {WxRow[]} rows */
+    function renderCharts(rows) {
+      if (!rows.length) {
+        setStatus("No plottable rows for this date.", true);
+        return;
+      }
+
+      const labels = rows.map((r) => r.t);
+      const windSpeed = rows.map((r) => parseNum(field(r, 2)));
+      const windGust = rows.map((r) => parseNum(field(r, 3)));
+      const windDir = rows.map((r) => parseNum(field(r, 4)));
+      const tempInC = rows.map((r) => parseNum(field(r, 12)));
+      const humIn = rows.map((r) => parseNum(field(r, 13)));
+      const inaSolarMa = rows.map((r) => parseSignedInt(field(r, 14)));
+      const inaSolarV = rows.map((r) => parseNum(field(r, 15)));
+      const battMa = rows.map((r) => parseSignedInt(field(r, 16)));
+      const battV = rows.map((r) => parseNum(field(r, 17)));
+      const renogySolarV = rows.map((r) => parseNum(field(r, 7)));
+      const renogySolarA = rows.map((r) => parseNum(field(r, 8)));
+      const renogyLoadV = rows.map((r) => parseNum(field(r, 22)));
+      const renogyLoadA = rows.map((r) => parseNum(field(r, 23)));
+
+      const pointData = (values) =>
+        labels.map((t, i) => ({ x: t, y: values[i] }));
+
+      destroyChart("wind");
+      charts.wind = new Chart(document.getElementById("windChart"), {
+        type: "line",
+        data: {
+          datasets: [
+            {
+              label: "Wind avg (mph)",
+              data: pointData(windSpeed),
+              borderColor: "#2563eb",
+              backgroundColor: "rgba(37, 99, 235, 0.12)",
+              yAxisID: "y",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+            {
+              label: "Gust 5m (mph)",
+              data: pointData(windGust),
+              borderColor: "#7c3aed",
+              backgroundColor: "rgba(124, 58, 237, 0.08)",
+              yAxisID: "y",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+            {
+              label: "Direction (°)",
+              data: pointData(windDir),
+              borderColor: "#94a3b8",
+              borderDash: [4, 3],
+              yAxisID: "yDir",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+          ],
+        },
+        options: {
+          ...chartDefaults(),
+          scales: {
+            ...chartDefaults().scales,
+            y: {
+              position: "left",
+              title: { display: true, text: "mph" },
+              beginAtZero: true,
+            },
+            yDir: {
+              position: "right",
+              min: 0,
+              max: 360,
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: "°" },
+            },
+          },
+        },
+      });
+
+      destroyChart("climate");
+      charts.climate = new Chart(document.getElementById("climateChart"), {
+        type: "line",
+        data: {
+          datasets: [
+            {
+              label: "Inside temp (°C)",
+              data: pointData(tempInC),
+              borderColor: "#ea580c",
+              yAxisID: "yTemp",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+            {
+              label: "Inside humidity (%)",
+              data: pointData(humIn),
+              borderColor: "#0891b2",
+              yAxisID: "yHum",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+          ],
+        },
+        options: {
+          ...chartDefaults(),
+          scales: {
+            ...chartDefaults().scales,
+            yTemp: {
+              position: "left",
+              title: { display: true, text: "°C" },
+            },
+            yHum: {
+              position: "right",
+              min: 0,
+              max: 100,
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: "%" },
+            },
+          },
+        },
+      });
+
+      destroyChart("volt");
+      charts.volt = new Chart(document.getElementById("voltChart"), {
+        type: "line",
+        data: {
+          datasets: [
+            {
+              label: "INA219 solar (V)",
+              data: pointData(inaSolarV),
+              borderColor: "#ca8a04",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+            {
+              label: "INA219 battery (V)",
+              data: pointData(battV),
+              borderColor: "#16a34a",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+            {
+              label: "Renogy solar (V)",
+              data: pointData(renogySolarV),
+              borderColor: "#f59e0b",
+              borderDash: [6, 4],
+              tension: 0.15,
+              pointRadius: 0,
+            },
+            {
+              label: "Renogy load (V)",
+              data: pointData(renogyLoadV),
+              borderColor: "#64748b",
+              borderDash: [2, 2],
+              tension: 0.15,
+              pointRadius: 0,
+            },
+          ],
+        },
+        options: {
+          ...chartDefaults(),
+          scales: {
+            ...chartDefaults().scales,
+            y: { title: { display: true, text: "volts" } },
+          },
+        },
+      });
+
+      destroyChart("current");
+      charts.current = new Chart(document.getElementById("currentChart"), {
+        type: "line",
+        data: {
+          datasets: [
+            {
+              label: "INA219 solar (mA)",
+              data: pointData(inaSolarMa),
+              borderColor: "#ca8a04",
+              yAxisID: "yMa",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+            {
+              label: "INA219 battery (mA)",
+              data: pointData(battMa),
+              borderColor: "#16a34a",
+              yAxisID: "yMa",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+            {
+              label: "Renogy solar (A)",
+              data: pointData(renogySolarA),
+              borderColor: "#f59e0b",
+              borderDash: [6, 4],
+              yAxisID: "yA",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+            {
+              label: "Renogy load (A)",
+              data: pointData(renogyLoadA),
+              borderColor: "#64748b",
+              borderDash: [2, 2],
+              yAxisID: "yA",
+              tension: 0.15,
+              pointRadius: 0,
+            },
+          ],
+        },
+        options: {
+          ...chartDefaults(),
+          scales: {
+            ...chartDefaults().scales,
+            yMa: {
+              position: "left",
+              title: { display: true, text: "mA" },
+            },
+            yA: {
+              position: "right",
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: "A" },
+            },
+          },
+        },
+      });
+
+      const ver = field(rows[rows.length - 1], 10);
+      setStatus(
+        `${rows.length} minutes plotted · latest firmware field: ${ver || "—"}`
+      );
+    }
+
+    function setStatus(msg, isError = false) {
+      const el = document.getElementById("status");
+      el.textContent = msg;
+      el.classList.toggle("error", isError);
+    }
+
+    function yyyymmdd(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}${m}${day}`;
+    }
+
+    function parseQuery() {
+      const params = new URLSearchParams(window.location.search);
+      const site = params.get("site");
+      const date = params.get("date");
+      if (site && ["betaOne", "betaTwo", "betaThree"].includes(site)) {
+        document.getElementById("site").value = site;
+      }
+      if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        document.getElementById("date").value = date;
+      }
+    }
+
+    function selectedDate() {
+      const v = document.getElementById("date").value;
+      if (!v) return new Date();
+      const [y, m, d] = v.split("-").map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    function cgiScriptPath() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("cgi") || "wx_dat.cgi";
+    }
+
+    function datFetchUrl(site, dateIso, refresh) {
+      const path = cgiScriptPath();
+      const qs = new URLSearchParams({ site, date: dateIso });
+      if (refresh) qs.set("refresh", "1");
+      return `${path}?${qs.toString()}`;
+    }
+
+    function scheduleLoad() {
+      clearTimeout(loadTimer);
+      loadTimer = setTimeout(() => loadSelected(), 350);
+    }
+
+    async function loadSelected() {
+      const site = document.getElementById("site").value;
+      const dateIso = document.getElementById("date").value;
+      if (!dateIso) {
+        setStatus("Pick a date.", true);
+        return;
+      }
+      const d = selectedDate();
+      const refresh = document.getElementById("refresh").checked;
+      const url = datFetchUrl(site, dateIso, refresh);
+      const seq = ++loadSeq;
+
+      setStatus(
+        refresh
+          ? `CGI re-download from flymarshall…`
+          : `Loading via CGI…`
+      );
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          const detail = (await res.text()).trim().slice(0, 200);
+          throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+        }
+        const text = await res.text();
+        if (seq !== loadSeq) return;
+        const rows = parseDat(text, d);
+        renderCharts(rows);
+      } catch (err) {
+        if (seq !== loadSeq) return;
+        setStatus(`Could not load ${url}: ${err.message}`, true);
+      }
+    }
+
+    function loadFromFile(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const d = selectedDate();
+        const rows = parseDat(String(reader.result), d);
+        renderCharts(rows);
+      };
+      reader.onerror = () => setStatus("Failed to read file.", true);
+      reader.readAsText(file);
+    }
+
+    document.getElementById("site").addEventListener("change", scheduleLoad);
+    document.getElementById("date").addEventListener("change", scheduleLoad);
+    document.getElementById("refresh").addEventListener("change", scheduleLoad);
+    document.getElementById("fileInput").addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file) loadFromFile(file);
+    });
+
+    parseQuery();
+    const dateInput = document.getElementById("date");
+    if (!dateInput.value) {
+      const today = new Date();
+      dateInput.value = today.toISOString().slice(0, 10);
+    }
+
+    if (new URLSearchParams(window.location.search).has("autoload")) {
+      loadSelected();
+    } else {
+      scheduleLoad();
+    }
+  </script>
+</body>
+</html>
