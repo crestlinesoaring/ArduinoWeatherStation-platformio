@@ -205,6 +205,9 @@ struct RTCmem {
 unsigned long lastSecond;   //The millis counter to see when a second rolls by
 unsigned long loopCounter;  //see how often we loop
 unsigned long loopDelta;    //see how many loops since the last print
+unsigned long loopTimeSumUs;       // sum of loop() durations since last [STATUS]
+unsigned long loopTimeSampleCount; // number of loop() iterations in that window
+unsigned long loopTimeMaxUs;       // longest loop() in that window
 unsigned long msTemp;       //store millis() now and then to see how long something took, for Serial.print()s all over
 unsigned long usTemp;       //store micros() now and then to see how long something took. Much smaller than millis!
 byte seconds;               //When it hits 60, increase the current minute
@@ -728,6 +731,9 @@ void setup()
 
   loopCounter = 0;
   loopDelta = 0;
+  loopTimeSumUs = 0;
+  loopTimeSampleCount = 0;
+  loopTimeMaxUs = 0;
 
   for (byte i = 0; i < 10; i++) {
     wxStringCache[i] = "";
@@ -936,8 +942,37 @@ void setup()
  */
 
 
+static void recordLoopTimeUs(unsigned long startUs) {
+  unsigned long dt = micros() - startUs;
+  // micros() wraps ~70 min; ignore absurd deltas from wrap or long preemption gaps
+  if (dt > 5000000UL) {
+    return;
+  }
+  if (dt > loopTimeMaxUs) {
+    loopTimeMaxUs = dt;
+  }
+  loopTimeSumUs += dt;
+  loopTimeSampleCount++;
+}
+
+static void printLoopTimeStatusAndReset() {
+  if (loopTimeSampleCount == 0) {
+    return;
+  }
+  const unsigned long avgUs = loopTimeSumUs / loopTimeSampleCount;
+  Serial.print(F("  loop avg="));
+  Serial.print((float)avgUs / 1000.0f, 2);
+  Serial.print(F("ms max="));
+  Serial.print((float)loopTimeMaxUs / 1000.0f, 2);
+  Serial.print(F("ms"));
+  loopTimeSumUs = 0;
+  loopTimeSampleCount = 0;
+  loopTimeMaxUs = 0;
+}
+
 void loop()
 {
+  const unsigned long loopStartUs = micros();
   handleSerial();
 
 #ifdef ANEMO_WS85
@@ -1211,6 +1246,7 @@ void loop()
         Serial.print((sunset + minutesAfterSunset) / 60); Serial.print(F(":"));
         Serial.print((sunset + minutesAfterSunset) % 60);
       }
+      printLoopTimeStatusAndReset();
       Serial.println();
 
       // Going to sleep if required according to criteria above:
@@ -1315,6 +1351,8 @@ void loop()
 #endif
 
   loopCounter++;
+
+  recordLoopTimeUs(loopStartUs);
 
 }// END OF LOOP()
 
