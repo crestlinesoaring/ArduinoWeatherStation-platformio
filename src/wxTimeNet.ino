@@ -1324,3 +1324,63 @@ size_t makeUploadWeatherPut(char* buf, size_t bufSize, const String& wxString, b
   strPut.toCharArray(buf, bufSize);
   return len;
 }
+
+// Serial diagnostics when makeUploadWeatherPut returns 0 (upload status 52).
+void printUploadPutBuildDiag(const String& wxString, size_t bufSize, byte uploadRetries) {
+  Serial.print(F("[UP] build diag mem="));
+  Serial.print(freeRam());
+  Serial.print(F(" buf="));
+  Serial.print(bufSize);
+  Serial.print(F(" retry="));
+  Serial.print(uploadRetries);
+  Serial.print(F(" wxLen="));
+  Serial.print(wxString.length());
+
+  if (bufSize < 64) {
+    Serial.println(F(" reason=buf_lt_64"));
+    return;
+  }
+  if (wxString.length() == 0) {
+    Serial.println(F(" reason=empty_w"));
+    return;
+  }
+
+  String strPut;
+  const size_t reserveHint = 96 + wxString.length() + (uploadRetries > 0 ? 16 : 0);
+  strPut.reserve(reserveHint);
+  strPut += F("PUT ");
+  strPut += wxUploadPath;
+  strPut += F("?sub=");
+  strPut += wxBetaText;
+  strPut += F("&w=");
+  strPut += wxString;
+  if (uploadRetries > 0) {
+    strPut += F(",UploadRetries=");
+    strPut += String(uploadRetries);
+  }
+  strPut += F(" HTTP/1.1\r\nHost: ");
+  strPut += wxSiteName;
+  strPut += F("\r\nConnection: close\r\n\r\n");
+
+  const size_t putLen = strPut.length();
+  Serial.print(F(" putLen="));
+  Serial.print(putLen);
+  Serial.print(F(" reserve="));
+  Serial.print(reserveHint);
+  if (putLen == 0) {
+    Serial.println(F(" reason=strPut_empty"));
+  } else if (putLen >= bufSize) {
+    Serial.println(F(" reason=put_ge_buf"));
+  } else {
+    Serial.println(F(" reason=unknown"));
+  }
+
+  Serial.print(F("[UP] build wxHead="));
+  const size_t preview = wxString.length() < 48 ? wxString.length() : 48;
+  for (size_t i = 0; i < preview; i++) {
+    char c = wxString.charAt(i);
+    if (c == '\r' || c == '\n') Serial.print(' ');
+    else Serial.print(c);
+  }
+  Serial.println();
+}
