@@ -1726,6 +1726,12 @@ byte uploadWeather(String WeatherString)
     if (strPutLength == 0) {
       uploadStatus = 52;
       printUploadAttemptFailure(attempt, uploadStatus);
+      Serial.print(F("[UP] build srcLen="));
+      Serial.print(WeatherString.length());
+      Serial.print(F(" putLen="));
+      Serial.print(WeatherString2.length());
+      Serial.println();
+      printUploadPutBuildDiag(WeatherString2, uploadBufSize, attempt);
       continue;
     }
     printUploadPutLine(charPut, (int)strPutLength);
