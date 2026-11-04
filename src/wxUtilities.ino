@@ -229,7 +229,7 @@ void enableCamSouth() {
   if (camStatus.SouthDesireOn == false) {
     wxLogTag(F("CAM"), F("south on"));
     pinMode(PIN_CamSouth_POWER, INPUT_PULLUP);              // precharge capacitor
-    delay (2000);                                      // let it charge up
+    delay (1000);                                      // let it charge up, 2026,nov,03: reduced from 2 to one sec
     pinMode(PIN_CamSouth_POWER, OUTPUT);
     digitalWrite(PIN_CamSouth_POWER, CamSouth_ON);
     camStatus.SouthDesireOn = true;
