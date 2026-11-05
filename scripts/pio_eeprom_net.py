@@ -22,6 +22,7 @@ from athena_eeprom import (  # noqa: E402
     parse_writer_raw_line,
     parse_writer_verify_line,
     read_writer_verify_line,
+    resolve_mac5_mac6,
 )
 def _cpp_define(name: str):
     for item in env.get("CPPDEFINES", []):
@@ -92,8 +93,7 @@ def patch_athena_eeprom_network(target, source, env):
     tftp_port = _cpp_define("ATHENA_TFTP_PORT")
     mac5_define = _cpp_define("MAC_5")
     mac6_define = _cpp_define("MAC_6")
-    mac5 = _int_define(mac5_define, "MAC_5") if mac5_define is not None else 0x02
-    mac6 = _int_define(mac6_define, "MAC_6") if mac6_define is not None else ip_wx
+    mac5, mac6 = resolve_mac5_mac6(mac5_define, mac6_define, ip_wx)
     mac = (0xDE, 0xAD, 0xBE, 0xEF, mac5, mac6)
 
     settings = network_settings_from_env(
@@ -137,8 +137,7 @@ def patch_athena_eeprom_network(target, source, env):
     upload_env = os.environ.copy()
     upload_env["EEPROM_NET_HW_VERSION"] = str(_hw_version_num())
     upload_env["EEPROM_NET_MAC_6"] = str(mac6)
-    if mac5_define is not None:
-        upload_env["EEPROM_NET_MAC_5"] = str(mac5)
+    upload_env["EEPROM_NET_MAC_5"] = str(mac5)
     if "force-hw-id" in ARGUMENTS:
         upload_env["EEPROM_NET_FORCE_HW_ID"] = "1"
         print(

@@ -10,6 +10,35 @@ NETEEPROM_SIG_3_VALUE = 0xBB
 DEFAULT_TFTP_PORT = 46969
 
 
+def int_from_cpp_define(value, name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} is not numeric: {value!r}")
+    if isinstance(value, int):
+        return value
+    import re
+
+    match = re.search(r"-?\d+", str(value))
+    if not match:
+        raise ValueError(f"{name} is not numeric: {value!r}")
+    return int(match.group())
+
+
+def resolve_mac5_mac6(
+    mac5_define: object | None,
+    mac6_define: object | None,
+    ip_wx: int,
+    mac5_default: int = 0x02,
+) -> tuple[int, int]:
+    """MAC last octet defaults to IP_WX when MAC_6 is not in build_flags."""
+    mac5 = mac5_default
+    if mac5_define is not None and mac5_define is not True:
+        mac5 = int_from_cpp_define(mac5_define, "MAC_5")
+    mac6 = ip_wx
+    if mac6_define is not None and mac6_define is not True:
+        mac6 = int_from_cpp_define(mac6_define, "MAC_6")
+    return mac5, mac6
+
+
 @dataclass(frozen=True)
 class AthenaNetworkSettings:
     ip: tuple[int, int, int, int]

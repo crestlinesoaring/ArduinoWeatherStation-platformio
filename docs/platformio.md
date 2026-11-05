@@ -102,7 +102,8 @@ Available on lab envs: `tavis`, `gb5_lab`, `gb6_lab`.
 
 Burns IP, gateway, subnet, MAC, and TFTP port into the Mega's **internal EEPROM**
 (Athena bootloader block, bytes 0–69). Reads `IP_GW`, `IP_Q3`, and `IP_WX` from
-the env's `build_flags` to form addresses like `192.168.<IP_Q3>.<IP_WX>`.
+the lab env's `build_flags` (the `*-eeprom-net` writer env **extends** the lab env
+so network and `HW_VERSION` flags stay in one place).
 
 ```powershell
 pio run -e gb5_lab -t eeprom-net --upload-port COM5
