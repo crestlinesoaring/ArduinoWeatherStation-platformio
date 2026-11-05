@@ -812,12 +812,16 @@ void printAthenaNetEeprom() {
   Serial.print(F("  athena net region blank="));
   uint8_t notBlankCount = 0;
   uint16_t firstNotBlank = 0xFFFF;
-  for (uint16_t addr = 0; addr < 70; addr++) {
-    const uint8_t v = athenaEepromByte(addr);
-    if (addr == 2 && v == 0xEE) {
-      continue; // IMG_OK: Athena stk500 sets this when avrdude leaves prog mode
+  for (uint8_t addr = 3; addr <= 25; addr++) {
+    if (athenaEepromByte(addr) != 0xFF) {
+      notBlankCount++;
+      if (firstNotBlank == 0xFFFF) {
+        firstNotBlank = addr;
+      }
     }
-    if (v != 0xFF) {
+  }
+  for (uint8_t addr = 68; addr <= 69; addr++) {
+    if (athenaEepromByte(addr) != 0xFF) {
       notBlankCount++;
       if (firstNotBlank == 0xFFFF) {
         firstNotBlank = addr;
@@ -825,11 +829,11 @@ void printAthenaNetEeprom() {
     }
   }
   if (notBlankCount == 0) {
-    Serial.print(F("yes"));
+    Serial.print(F("yes (bytes 3-25,68-69)"));
     if (athenaEepromByte(2) == 0xEE) {
-      Serial.println(F(" (byte 2=0xEE IMG_OK after USB flash is normal)"));
+      Serial.println(F("; byte 2=0xEE normal after USB flash"));
     } else {
-      Serial.println(F(" (erased)"));
+      Serial.println();
     }
   } else {
     Serial.print(F("no ("));

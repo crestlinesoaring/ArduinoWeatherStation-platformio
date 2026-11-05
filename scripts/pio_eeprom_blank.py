@@ -84,54 +84,60 @@ def _parse_intel_hex(path: Path) -> dict[int, int]:
     return mem
 
 
-def _byte_ok_after_serial_blank(addr: int, value: int) -> bool:
-    if value == 0xFF:
-        return True
-    if addr == ATHENA_IMG_STAT_ADDR and value == ATHENA_IMG_OK_VALUE:
-        return True
-    return False
+ATHENA_IMG_OK_VALUE = 0xEE
+# Same bytes eeprom-net writer must program (see WriteEepromNet.ino networkWritable).
+NET_WRITER_ADDRS = tuple(list(range(3, 26)) + [68, 69])
+# Bootloader stamps these on reset (check_and_update_eeprom_version); ignored on read-back.
+BOOTLOADER_STAMP_ADDRS = (0, 1, 65, 66, 67)
 
 
 def _verify_blank_readback(readback: Path, sample_addrs: tuple[int, ...]) -> None:
     mem = _parse_intel_hex(readback)
-    bad = [
-        addr
-        for addr in sample_addrs
-        if not _byte_ok_after_serial_blank(addr, mem.get(addr, -1))
+
+    net_bad = [
+        addr for addr in NET_WRITER_ADDRS if mem.get(addr, -1) != 0xFF
     ]
-    if bad:
-        samples = ", ".join(f"{a}=0x{mem.get(a, 0):02X}" for a in bad[:8])
+    if net_bad:
+        preview = ", ".join(f"{a}=0x{mem[a]:02X}" for a in net_bad[:12])
+        suffix = "..." if len(net_bad) > 12 else ""
         raise RuntimeError(
-            "EEPROM read-back after blank is not all 0xFF "
-            f"(sample mismatches: {samples}). "
-            "Check --upload-port matches the Mega and that avrdude can program EEPROM."
+            "EEPROM network block not blank for eeprom-net "
+            f"({len(net_bad)} bytes in 3..25 / 68-69): {preview}{suffix}"
         )
 
-    athena_bad = [
+    sample_bad = [
+        addr for addr in sample_addrs if mem.get(addr, -1) != 0xFF
+    ]
+    if sample_bad:
+        samples = ", ".join(f"{a}=0x{mem.get(a, 0):02X}" for a in sample_bad[:8])
+        raise RuntimeError(f"EEPROM read-back spot-check failed: {samples}")
+
+    other_non_ff = [
         addr
         for addr in range(70)
-        if not _byte_ok_after_serial_blank(addr, mem.get(addr, -1))
+        if addr not in NET_WRITER_ADDRS
+        and addr not in BOOTLOADER_STAMP_ADDRS
+        and addr != ATHENA_IMG_STAT_ADDR
+        and mem.get(addr, -1) != 0xFF
     ]
-    if athena_bad:
-        preview = ", ".join(f"{a}=0x{mem[a]:02X}" for a in athena_bad[:12])
-        suffix = "..." if len(athena_bad) > 12 else ""
-        raise RuntimeError(
-            f"EEPROM read-back: Athena block [0..69] not blank "
-            f"({len(athena_bad)} bytes): {preview}{suffix}"
+    if other_non_ff:
+        preview = ", ".join(f"{a}=0x{mem[a]:02X}" for a in other_non_ff[:8])
+        print(
+            f"[eeprom-blank] note: non-FF outside net block (e.g. password bytes) — "
+            f"{len(other_non_ff)} byte(s): {preview}"
+            + ("..." if len(other_non_ff) > 8 else "")
         )
 
     img = mem.get(ATHENA_IMG_STAT_ADDR, -1)
     img_note = (
-        f"byte {ATHENA_IMG_STAT_ADDR}=0x{img:02X} (IMG_OK from avrdude exit is normal)"
+        f"byte 2=0xEE (IMG_OK after avrdude exit is normal)"
         if img == ATHENA_IMG_OK_VALUE
-        else f"byte {ATHENA_IMG_STAT_ADDR}=0x{img:02X}"
+        else f"byte 2=0x{img:02X}"
     )
     print(
-        "[eeprom-blank] read-back OK (Athena [0..69] blank; "
+        "[eeprom-blank] read-back OK (net bytes 3..25 & 68-69 are 0xFF; "
         + img_note
-        + "; spot-checked "
-        + ", ".join(str(a) for a in sample_addrs)
-        + ")"
+        + "; bootloader may stamp bytes 0,1,65-67 on read)"
     )
 
 
