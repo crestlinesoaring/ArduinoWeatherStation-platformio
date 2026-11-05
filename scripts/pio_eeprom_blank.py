@@ -10,6 +10,9 @@ from SCons.Script import ARGUMENTS
 Import("env")
 
 MEGA2560_EEPROM_SIZE = 4096
+# Athena NETEEPROM_IMG_STAT — bootloader sets IMG_OK (0xEE) on STK_LEAVE_PROGMODE after avrdude.
+ATHENA_IMG_STAT_ADDR = 2
+ATHENA_IMG_OK_VALUE = 0xEE
 
 
 def _write_blank_eep(path: Path, size: int = MEGA2560_EEPROM_SIZE) -> None:
@@ -81,34 +84,52 @@ def _parse_intel_hex(path: Path) -> dict[int, int]:
     return mem
 
 
+def _byte_ok_after_serial_blank(addr: int, value: int) -> bool:
+    if value == 0xFF:
+        return True
+    if addr == ATHENA_IMG_STAT_ADDR and value == ATHENA_IMG_OK_VALUE:
+        return True
+    return False
+
+
 def _verify_blank_readback(readback: Path, sample_addrs: tuple[int, ...]) -> None:
     mem = _parse_intel_hex(readback)
-    bad = [addr for addr in sample_addrs if mem.get(addr, -1) != 0xFF]
+    bad = [
+        addr
+        for addr in sample_addrs
+        if not _byte_ok_after_serial_blank(addr, mem.get(addr, -1))
+    ]
     if bad:
         samples = ", ".join(f"{a}=0x{mem.get(a, 0):02X}" for a in bad[:8])
         raise RuntimeError(
             "EEPROM read-back after blank is not all 0xFF "
             f"(sample mismatches: {samples}). "
-            "Check --upload-port matches the GB5 Mega and that avrdude can program EEPROM."
+            "Check --upload-port matches the Mega and that avrdude can program EEPROM."
         )
 
-    athena_bad = [addr for addr in range(70) if mem.get(addr, -1) != 0xFF]
+    athena_bad = [
+        addr
+        for addr in range(70)
+        if not _byte_ok_after_serial_blank(addr, mem.get(addr, -1))
+    ]
     if athena_bad:
         preview = ", ".join(f"{a}=0x{mem[a]:02X}" for a in athena_bad[:12])
         suffix = "..." if len(athena_bad) > 12 else ""
         raise RuntimeError(
-            f"EEPROM read-back: Athena block [0..69] not all 0xFF "
+            f"EEPROM read-back: Athena block [0..69] not blank "
             f"({len(athena_bad)} bytes): {preview}{suffix}"
         )
 
-    all_bad = [addr for addr in range(MEGA2560_EEPROM_SIZE) if mem.get(addr, -1) != 0xFF]
-    if all_bad:
-        print(
-            f"[eeprom-blank] warning: {len(all_bad)} bytes outside Athena block are not 0xFF "
-            f"(first few: {', '.join(f'{a}=0x{mem[a]:02X}' for a in all_bad[:6])})"
-        )
+    img = mem.get(ATHENA_IMG_STAT_ADDR, -1)
+    img_note = (
+        f"byte {ATHENA_IMG_STAT_ADDR}=0x{img:02X} (IMG_OK from avrdude exit is normal)"
+        if img == ATHENA_IMG_OK_VALUE
+        else f"byte {ATHENA_IMG_STAT_ADDR}=0x{img:02X}"
+    )
     print(
-        "[eeprom-blank] read-back OK (Athena [0..69] all 0xFF; spot-checked "
+        "[eeprom-blank] read-back OK (Athena [0..69] blank; "
+        + img_note
+        + "; spot-checked "
         + ", ".join(str(a) for a in sample_addrs)
         + ")"
     )
@@ -148,8 +169,8 @@ def blank_eeprom(target, source, env):
     if env.Execute(env.VerboseAction(read_cmd, "Reading EEPROM for verification")):
         raise RuntimeError("avrdude failed to read EEPROM for verification")
 
-    # Network writer checks sigs 3–4, IPs/MAC 5–25, and CS/reset 68–69.
-    _verify_blank_readback(readback_eep, (2, 3, 4, 5, 19, 23, 68, 69))
+    # Network writer checks sigs 3–4, IPs/MAC 5–25, and CS/reset 68–69 (not byte 2 imgStat).
+    _verify_blank_readback(readback_eep, (3, 4, 5, 19, 23, 68, 69))
 
     print("[eeprom-blank] EEPROM blanked to 0xFF (verified on chip)")
     print(
