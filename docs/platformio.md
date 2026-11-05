@@ -111,7 +111,8 @@ pio run -e gb5_lab -t eeprom-net --upload-port COM5
 
 Options:
 
-- `--force-hw-id` — re-write hardware ID byte 75 from `HW_VERSION`
+- `--force-hw-id` — re-write hardware ID byte 75 even when it already matches `HW_VERSION`
+- Byte 75 is also written when unset (`0xFF`) or when it differs from the lab env's `HW_VERSION`
 - `--upload-port COM5` — serial port (required unless set in `platformio.ini`)
 
 On success, re-flash the main firmware:

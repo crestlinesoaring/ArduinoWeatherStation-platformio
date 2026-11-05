@@ -4,7 +4,8 @@
  * Or:        pio run -e tavis -t eeprom-net  (uploads this sketch automatically)
  *
  * Patches Athena network settings (writeNet/writePort + CS/reset pins).
- * Optionally writes weather-station eeHardwareId (byte 75) from HW_VERSION.
+ * Optionally writes weather-station eeHardwareId (byte 75) from lab HW_VERSION
+ * (passed as numeric EEPROM_HW_VERSION_NUM by pio_eeprom_writer_env.py).
  */
 
 #include <avr/eeprom.h>
@@ -42,8 +43,8 @@
 #define MAC_6 IP_WX
 #endif
 
-#ifndef HW_VERSION
-#error "HW_VERSION must be defined (passed from parent env by eeprom-net)"
+#ifndef EEPROM_HW_VERSION_NUM
+#error "EEPROM_HW_VERSION_NUM must be set by pio_eeprom_writer_env.py (from lab HW_VERSION)"
 #endif
 
 static const uint8_t EE_HARDWARE_ID = 75;
@@ -204,15 +205,22 @@ static void writeHardwareId(uint8_t id) {
 
 static void writeHardwareIdIfNeeded() {
   const uint8_t stored = eepromByte(EE_HARDWARE_ID);
-  const uint8_t target = HW_VERSION;
+  const uint8_t target = EEPROM_HW_VERSION_NUM;
 
 #ifdef EEPROM_NET_FORCE_HW_ID
   Serial.print(F("[eeprom-net] force-writing hwId="));
   Serial.println(target);
   writeHardwareId(target);
-#elif stored == EE_UNINITIALIZED
-  Serial.print(F("[eeprom-net] writing hwId="));
-  Serial.println(target);
+#elif stored == EE_UNINITIALIZED || stored != target
+  if (stored == EE_UNINITIALIZED) {
+    Serial.print(F("[eeprom-net] writing hwId="));
+    Serial.println(target);
+  } else {
+    Serial.print(F("[eeprom-net] updating hwId from "));
+    Serial.print(stored);
+    Serial.print(F(" to "));
+    Serial.println(target);
+  }
   writeHardwareId(target);
 #else
   Serial.print(F("[eeprom-net] hwId="));

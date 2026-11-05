@@ -179,6 +179,6 @@ env.AddCustomTarget(
     description=(
         "Upload Athena network writer from IP_GW/IP_Q3/IP_WX and verify via serial. "
         "Optional MAC_6 overrides the MAC last octet (default IP_WX). "
-        "Use --force-hw-id to re-burn byte 75 from HW_VERSION."
+        "Use --force-hw-id to re-burn byte 75 when it already matches HW_VERSION."
     ),
 )
