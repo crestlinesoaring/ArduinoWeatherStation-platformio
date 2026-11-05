@@ -808,6 +808,35 @@ void printAthenaNetEeprom() {
     Serial.print(value, HEX);
   }
   Serial.println();
+
+  Serial.print(F("  athena[0..69] all FF="));
+  uint8_t notFfCount = 0;
+  uint16_t firstNotFf = 0xFFFF;
+  for (uint16_t addr = 0; addr < 70; addr++) {
+    if (athenaEepromByte(addr) != 0xFF) {
+      notFfCount++;
+      if (firstNotFf == 0xFFFF) {
+        firstNotFf = addr;
+      }
+    }
+  }
+  if (notFfCount == 0) {
+    Serial.println(F("yes (erased / blank)"));
+  } else {
+    Serial.print(F("no ("));
+    Serial.print(notFfCount);
+    Serial.print(F(" bytes), first=0x"));
+    if (firstNotFf < 16) {
+      Serial.print(F("0"));
+    }
+    Serial.print(firstNotFf, HEX);
+    Serial.print(F(" val=0x"));
+    uint8_t v = athenaEepromByte(firstNotFf);
+    if (v < 16) {
+      Serial.print(F("0"));
+    }
+    Serial.println(v, HEX);
+  }
 }
 
 // Turns off power for network components to save power

@@ -52,7 +52,40 @@ def network_settings_from_env(
     )
 
 
-def read_writer_verify_line(port: str, timeout_s: float = 10.0) -> tuple[str, str]:
+# Athena bootloader TFTP wait can be ~10s before the application sketch runs.
+WRITER_SERIAL_TIMEOUT_S = 30.0
+
+_WRITER_SESSION_START_PREFIXES = (
+    "[eeprom-net] writer running",
+    "[eeprom-net] writing hwId=",
+    "[eeprom-net] force-writing hwId=",
+    "[eeprom-net] hwId=",
+    "[eeprom-net] network settings already match",
+    "[eeprom-net] stuck cells",
+    "[eeprom-net] EEPROM still not writable",
+    "[eeprom-net] writing Athena network",
+)
+
+
+def _apply_writer_serial_line(
+    line: str, verify_line: str, raw_line: str
+) -> tuple[str, str]:
+    stripped = line.strip()
+    if not stripped:
+        return verify_line, raw_line
+    if any(stripped.startswith(prefix) for prefix in _WRITER_SESSION_START_PREFIXES):
+        verify_line = ""
+        raw_line = ""
+    if stripped.startswith("[eeprom-net] VERIFY "):
+        verify_line = stripped
+    elif stripped.startswith("[eeprom-net] RAW "):
+        raw_line = stripped
+    return verify_line, raw_line
+
+
+def read_writer_verify_line(
+    port: str, timeout_s: float = WRITER_SERIAL_TIMEOUT_S
+) -> tuple[str, str]:
     """Reset the board and return VERIFY + RAW lines from a fresh writer boot."""
     try:
         import serial
@@ -84,21 +117,24 @@ def read_writer_verify_line(port: str, timeout_s: float = 10.0) -> tuple[str, st
             chunk = ser.read(4096).decode("utf-8", errors="replace")
             if chunk:
                 buffer += chunk
+                if len(buffer) > 65536:
+                    buffer = buffer[-32768:]
                 for line in buffer.splitlines():
-                    if line.startswith("[eeprom-net] VERIFY "):
-                        verify_line = line
-                    elif line.startswith("[eeprom-net] RAW "):
-                        raw_line = line
+                    verify_line, raw_line = _apply_writer_serial_line(
+                        line, verify_line, raw_line
+                    )
             if verify_line and raw_line:
                 return verify_line, raw_line
-            time.sleep(0.1)
+            time.sleep(0.05)
     finally:
         ser.close()
 
     if verify_line and raw_line:
         return verify_line, raw_line
     raise RuntimeError(
-        "timed out waiting for [eeprom-net] VERIFY and RAW lines from writer sketch"
+        "timed out waiting for [eeprom-net] VERIFY and RAW lines from writer sketch "
+        f"after {timeout_s:.0f}s (Athena bootloader TFTP wait is often ~10s before the "
+        "writer runs; close Serial Monitor on this port and retry)"
     )
 
 

@@ -75,6 +75,19 @@ static bool byteWritable(uint8_t cur, uint8_t want) {
   return (cur & want) == want;
 }
 
+static void eraseNetworkByte(uint16_t addr) {
+  eeprom_write_byte((uint8_t*)(uintptr_t)addr, 0xFF);
+}
+
+// AVR EEPROM clears bits only; writing 0xFF erases one byte so a new value can be programmed.
+static void eraseAthenaNetworkBlock() {
+  for (uint8_t addr = 3; addr <= 25; addr++) {
+    eraseNetworkByte(addr);
+  }
+  eraseNetworkByte(68);
+  eraseNetworkByte(69);
+}
+
 static bool networkWritable() {
   if (!byteWritable(eepromByte(3), NET_SIG_1) || !byteWritable(eepromByte(4), NET_SIG_2)) {
     return false;
@@ -209,6 +222,7 @@ static void writeHardwareIdIfNeeded() {
 void setup() {
   Serial.begin(115200);
   delay(100);
+  Serial.println(F("[eeprom-net] writer running"));
 
   writeHardwareIdIfNeeded();
 
@@ -220,7 +234,12 @@ void setup() {
   }
 
   if (!networkWritable()) {
-    Serial.println(F("[eeprom-net] EEPROM cells cannot be updated in place (need chip erase)"));
+    Serial.println(F("[eeprom-net] stuck cells; erasing Athena net block (0xFF per byte)..."));
+    eraseAthenaNetworkBlock();
+  }
+
+  if (!networkWritable()) {
+    Serial.println(F("[eeprom-net] EEPROM still not writable after per-byte erase (hardware?)"));
     printVerifyLine();
     return;
   }
