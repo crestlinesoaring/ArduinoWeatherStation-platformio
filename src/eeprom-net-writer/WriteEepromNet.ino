@@ -21,8 +21,10 @@
 #endif
 
 #ifndef ATHENA_TFTP_PORT
-#define ATHENA_TFTP_PORT 46969
+#define ATHENA_TFTP_PORT 46969   //jjj this will be different for each board , right now GB6 is 46966
 #endif
+
+///jjj the negotiation port also changes for each GB, for GB6 it is 10066 (instead of 10069 for GB5). The router changes this to local 69. thank you!
 
 #ifndef ATHENA_ETH_CS_PIN
 #define ATHENA_ETH_CS_PIN 53
