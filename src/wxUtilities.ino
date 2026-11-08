@@ -5,7 +5,16 @@
  * 
  */
 
+bool windMphPlausible(float mph) {
+  return mph >= 0.0f && mph <= WX_MAX_WIND_MPH;
+}
+
+bool windMpsValid(float mps) {
+  return mps >= 0.0f && mps <= (WX_MAX_WIND_MPH / 2.23694f);
+}
+
 void accumulateWindSpeedSample(float speed) {
+  if (!windMphPlausible(speed)) return;
   windSpeedMinuteSum += speed;
   windSpeedMinuteCount++;
 }
@@ -49,7 +58,8 @@ float get_wind_speed()
       return(SIMULATE_WIND_SPEED);
     #elif defined(ANEMO_WS85)
     if (ws85Fresh(30000)) {
-      return ws85SpeedMph();
+      float mph = ws85SpeedMph();
+      if (windMphPlausible(mph)) return mph;
     }
     return windSpeedAvg;
     #else
@@ -62,7 +72,8 @@ float get_wind_speed()
     lastWindCheck = millis();
     windSpeed *= 1.492; //4 * 1.492 = 5.968MPH
 
-    return(windSpeed);
+    if (windMphPlausible(windSpeed)) return windSpeed;
+    return windSpeedAvg;
     #endif
 }
 
@@ -538,9 +549,11 @@ void calcWeather()
     //Step through the 10 minutes
     for(int i = 0; i < 10 ; i++)
     {
-        if(windgust_10m[i] > windgustmph_10m)
+        float g = windgust_10m[i];
+        if (!windMphPlausible(g)) continue;
+        if(g > windgustmph_10m)
         {
-            windgustmph_10m = windgust_10m[i];
+            windgustmph_10m = g;
             windgustdir_10m = windgustdirection_10m[i];
         }
     }
@@ -553,9 +566,11 @@ void calcWeather()
     //Step through the 5 minutes
     for(int i = 0; i < 5 ; i++)
     {
-        if(windgust_5m[i] > windgustmph_5m)
+        float g = windgust_5m[i];
+        if (!windMphPlausible(g)) continue;
+        if(g > windgustmph_5m)
         {
-            windgustmph_5m = windgust_5m[i];
+            windgustmph_5m = g;
             windgustdir_5m = windgustdirection_5m[i];
         }
     }

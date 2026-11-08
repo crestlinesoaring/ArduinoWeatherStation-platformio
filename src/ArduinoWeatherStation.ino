@@ -1003,49 +1003,46 @@ void loop()
       float currentGust = ws85GustMph();
       int currentDirection = ws85Direction();
 
-      windspeedmph = currentSpeed;
-
-      accumulateWindSpeedSample(currentSpeed);
-
-      if (currentGust > windgust_10m[minutes_10m]) {
-        windgust_10m[minutes_10m] = currentGust;
-        windgustdirection_10m[minutes_10m] = currentDirection;
+      if (windMphPlausible(currentSpeed)) {
+        windspeedmph = currentSpeed;
+        accumulateWindSpeedSample(currentSpeed);
       }
-      if (currentGust > windgust_5m[minutes_5m]) {
-        windgust_5m[minutes_5m] = currentGust;
-        windgustdirection_5m[minutes_5m] = currentDirection;
-      }
-      if (currentGust > windgustmph) {
-        windgustmph = currentGust;
-        windgustdir = currentDirection;
+
+      if (windMphPlausible(currentGust)) {
+        if (currentGust > windgust_10m[minutes_10m]) {
+          windgust_10m[minutes_10m] = currentGust;
+          windgustdirection_10m[minutes_10m] = currentDirection;
+        }
+        if (currentGust > windgust_5m[minutes_5m]) {
+          windgust_5m[minutes_5m] = currentGust;
+          windgustdirection_5m[minutes_5m] = currentDirection;
+        }
+        if (currentGust > windgustmph) {
+          windgustmph = currentGust;
+          windgustdir = currentDirection;
+        }
       }
     }
 #else
-    float currentSpeed;
-    currentSpeed = get_wind_speed();
-
-    windspeedmph = currentSpeed; //update global variable for windspeed when using the printWeather() function
+    float currentSpeed = get_wind_speed();
     int currentDirection = get_wind_direction();
 
-    accumulateWindSpeedSample(currentSpeed);
+    if (windMphPlausible(currentSpeed)) {
+      windspeedmph = currentSpeed;
+      accumulateWindSpeedSample(currentSpeed);
 
-    //Check to see if this is a gust for the minute
-    if(currentSpeed > windgust_10m[minutes_10m])
-    {
+      if (currentSpeed > windgust_10m[minutes_10m]) {
         windgust_10m[minutes_10m] = currentSpeed;
         windgustdirection_10m[minutes_10m] = currentDirection;
-    }
-    if(currentSpeed > windgust_5m[minutes_5m])
-    {
+      }
+      if (currentSpeed > windgust_5m[minutes_5m]) {
         windgust_5m[minutes_5m] = currentSpeed;
         windgustdirection_5m[minutes_5m] = currentDirection;
-    }
-
-    //Check to see if this is a gust for the day (assuming daily reboots; this never resets on its own).
-    if(currentSpeed > windgustmph)
-    {
+      }
+      if (currentSpeed > windgustmph) {
         windgustmph = currentSpeed;
         windgustdir = currentDirection;
+      }
     }
 #endif
 

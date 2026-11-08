@@ -7,6 +7,11 @@
 // legacy wind-vane/cup anemometer path.
 #define WS85_BAUD 115200
 
+// Plausible surface wind ceiling (mph); filters WS85 junk and guards averages / gust maxima.
+#define WX_MAX_WIND_MPH 200.0f
+bool windMphPlausible(float mph);
+bool windMpsValid(float mps);
+
 // BENCH_MODE and DONT_SLEEP are set via PlatformIO build flags (see platformio.ini),
 // not defined here.
 #ifdef DONT_SLEEP

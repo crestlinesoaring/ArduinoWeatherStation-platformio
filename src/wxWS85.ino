@@ -142,11 +142,17 @@ void ws85ParseLine(const String &line) {
       ws85HaveDir = true;
     }
   } else if (key == "WindSpeed") {
-    ws85SpeedMps = val.toFloat();
-    ws85HaveSpeed = true;
+    float speedMps = val.toFloat();
+    if (windMpsValid(speedMps)) {
+      ws85SpeedMps = speedMps;
+      ws85HaveSpeed = true;
+    }
   } else if (key == "WindGust") {
-    ws85GustMps = val.toFloat();
-    ws85HaveGust = true;
+    float gustMps = val.toFloat();
+    if (windMpsValid(gustMps)) {
+      ws85GustMps = gustMps;
+      ws85HaveGust = true;
+    }
   } else if (key == "GXTS04Temp") {
     ws85TempCelsius = val.toFloat();
     ws85HaveTemp = true;
@@ -195,11 +201,14 @@ bool ws85ConsumeFrame() {
 }
 
 float ws85SpeedMph() {
+  if (!ws85HaveSpeed || !windMpsValid(ws85SpeedMps)) {
+    return 0.0f;
+  }
   return ws85SpeedMps * 2.23694f;
 }
 
 float ws85GustMph() {
-  if (ws85HaveGust) {
+  if (ws85HaveGust && windMpsValid(ws85GustMps)) {
     return ws85GustMps * 2.23694f;
   }
   return ws85SpeedMph();
