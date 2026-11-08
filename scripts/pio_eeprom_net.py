@@ -145,12 +145,15 @@ def patch_athena_eeprom_network(target, source, env):
             f"(HW_VERSION={upload_env['EEPROM_NET_HW_VERSION']})"
         )
     print(f"[eeprom-net] uploading writer sketch ({writer_env})...")
+    print(
+        "[eeprom-net] close Serial Monitor on this port before verify "
+        "(only one program can use the COM port)."
+    )
     subprocess.run(upload_cmd, cwd=str(project_dir), check=True, env=upload_env)
 
-    time.sleep(2.0)
     print(
         "[eeprom-net] verifying via writer serial output "
-        "(waiting up to 30s for Athena bootloader + writer)..."
+        "(resetting board, waiting up to 30s for Athena bootloader + writer)..."
     )
     verify_line, raw_line = read_writer_verify_line(port)
     print(verify_line)

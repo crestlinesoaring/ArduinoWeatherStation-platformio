@@ -87,6 +87,7 @@ WRITER_SERIAL_TIMEOUT_S = 30.0
 _WRITER_SESSION_START_PREFIXES = (
     "[eeprom-net] writer running",
     "[eeprom-net] writing hwId=",
+    "[eeprom-net] updating hwId from ",
     "[eeprom-net] force-writing hwId=",
     "[eeprom-net] hwId=",
     "[eeprom-net] network settings already match",
@@ -112,6 +113,46 @@ def _apply_writer_serial_line(
     return verify_line, raw_line
 
 
+def wait_for_serial_port(port: str, timeout_s: float = 20.0) -> None:
+    """Wait until the COM port can be opened (Windows often holds it briefly after avrdude)."""
+    try:
+        import serial
+    except ImportError as exc:
+        raise RuntimeError("pyserial is required for eeprom-net verification") from exc
+
+    deadline = time.time() + timeout_s
+    last_err: Exception | None = None
+    while time.time() < deadline:
+        try:
+            probe = serial.Serial(port, 115200, timeout=0)
+            probe.close()
+            time.sleep(0.15)
+            return
+        except (serial.SerialException, OSError) as exc:
+            last_err = exc
+            time.sleep(0.25)
+    raise RuntimeError(
+        f"serial port {port!r} not available after upload ({timeout_s:.0f}s): {last_err}. "
+        "Close Serial Monitor or any other app using this port and retry."
+    ) from last_err
+
+
+def pulse_board_reset(ser) -> None:
+    """Pulse USB serial control lines to hit the Mega auto-reset circuit."""
+    # Adapters differ (FTDI, CH340, CP2102); try DTR then RTS pulses.
+    ser.dtr = False
+    ser.rts = False
+    time.sleep(0.05)
+    ser.dtr = True
+    time.sleep(0.05)
+    ser.dtr = False
+    time.sleep(0.05)
+    ser.rts = True
+    time.sleep(0.05)
+    ser.rts = False
+    time.sleep(0.2)
+
+
 def read_writer_verify_line(
     port: str, timeout_s: float = WRITER_SERIAL_TIMEOUT_S
 ) -> tuple[str, str]:
@@ -120,6 +161,8 @@ def read_writer_verify_line(
         import serial
     except ImportError as exc:
         raise RuntimeError("pyserial is required for eeprom-net verification") from exc
+
+    wait_for_serial_port(port)
 
     ser = serial.Serial()
     ser.port = port
@@ -130,17 +173,17 @@ def read_writer_verify_line(
     ser.open()
     ser.reset_input_buffer()
 
-    # Force a clean boot so we do not accept stale VERIFY output in the USB buffer.
-    ser.dtr = True
-    time.sleep(0.05)
-    ser.dtr = False
-    time.sleep(0.2)
+    # Upload can finish without resetting the CPU (common on Windows). Always reset
+    # after opening the port so the writer sketch runs while we are listening.
+    pulse_board_reset(ser)
     ser.reset_input_buffer()
 
     deadline = time.time() + timeout_s
     buffer = ""
     verify_line = ""
     raw_line = ""
+    session_seen = False
+    last_reset = time.time()
     try:
         while time.time() < deadline:
             chunk = ser.read(4096).decode("utf-8", errors="replace")
@@ -149,11 +192,24 @@ def read_writer_verify_line(
                 if len(buffer) > 65536:
                     buffer = buffer[-32768:]
                 for line in buffer.splitlines():
+                    stripped = line.strip()
+                    if stripped and any(
+                        stripped.startswith(prefix)
+                        for prefix in _WRITER_SESSION_START_PREFIXES
+                    ):
+                        session_seen = True
                     verify_line, raw_line = _apply_writer_serial_line(
                         line, verify_line, raw_line
                     )
             if verify_line and raw_line:
                 return verify_line, raw_line
+            if not session_seen and time.time() - last_reset > 12.0:
+                pulse_board_reset(ser)
+                ser.reset_input_buffer()
+                buffer = ""
+                verify_line = ""
+                raw_line = ""
+                last_reset = time.time()
             time.sleep(0.05)
     finally:
         ser.close()
@@ -162,8 +218,9 @@ def read_writer_verify_line(
         return verify_line, raw_line
     raise RuntimeError(
         "timed out waiting for [eeprom-net] VERIFY and RAW lines from writer sketch "
-        f"after {timeout_s:.0f}s (Athena bootloader TFTP wait is often ~10s before the "
-        "writer runs; close Serial Monitor on this port and retry)"
+        f"after {timeout_s:.0f}s. Upload may have succeeded but the board did not reset "
+        "(try pressing the Mega reset button once, then re-run). Close Serial Monitor "
+        "on this port. Athena bootloader TFTP wait is often ~10s before the writer runs."
     )
 
 
