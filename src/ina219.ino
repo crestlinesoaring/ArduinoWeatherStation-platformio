@@ -98,7 +98,9 @@ void ina219ReadNow() {
 }
 
 void finalizeInaMinute() {
-  if (ina219_sampleCount > 0) {
+  const bool sparseMinute =
+      ina219_sampleCount < INA_MIN_SAMPLES_PER_MINUTE;
+  if (ina219_sampleCount > 0 && !sparseMinute) {
     float n = (float)ina219_sampleCount;
     applyInaGlobals(
         ina219_solarVoltSum / n,
@@ -116,7 +118,14 @@ void finalizeInaMinute() {
   Serial.print(ina219_samplesLastMinute);
   Serial.print(F(", rate: "));
   Serial.print(ina219_avgReadHz, 2);
-  Serial.println(F(" Hz"));
+  if (sparseMinute) {
+    Serial.print(F(" (held prev mean"));
+    if (ina219_sampleCount > 0) {
+      Serial.print(F(", sparse"));
+    }
+    Serial.print(')');
+  }
+  Serial.println();
 
   ina219_solarVoltSum = 0;
   ina219_solarMaSum = 0;

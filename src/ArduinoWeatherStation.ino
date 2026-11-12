@@ -1404,6 +1404,8 @@ void runFiveMinuteUpload(byte& uploadStatus) {
   if (lastUploadMinute == wxMin) return;
   lastUploadMinute = wxMin;
 
+  ina219Poll();
+
 #ifndef BENCH_MODE
   uploadPending = true;
   wxLogSection(F("UPLOAD"));
@@ -1492,6 +1494,7 @@ void finishBootAndCacheWeather() {
   justBooted = false;
   lastRealMinute = minute();
   finalizeWindSpeedMinute();
+  finalizeInaMinute();
   tempWeatherString = getWeatherString();
   Serial.print(F("[WX] "));
   Serial.println(tempWeatherString);
@@ -1523,6 +1526,7 @@ static byte expectedHourForMinute(byte uploadMinute, byte expectedMinute) {
 static void tryUploadCacheSlot(byte slot, byte expectedMinute, byte expectedHour, byte& uploadStatus) {
   wdt_reset();
   pollTelnetAccept();
+  ina219Poll();
   if (shouldUploadCacheSlot(slot, expectedMinute, expectedHour, wxStringCache[slot])) {
     uploadStatus = uploadWeather(wxStringCache[slot]);
   }
